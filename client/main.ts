@@ -157,8 +157,26 @@ function setPinState(p: Pin3D, visible: boolean, active: boolean): void {
 }
 
 const restaurantPins = PUZZLE.restaurants.map((p) => pinMesh(p, COLORS.restaurant));
+
+// A restaurant can owe you more than one order, and driving through collects
+// all of them at once. That is only a route decision if you can see it coming,
+// so each waiting order gets a package bobbing over the pin.
+const PKG_Y = 11.5;
+const pkgGeo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
+const pkgMat = new THREE.MeshLambertMaterial({ color: 0xd8a35f });
+const packages = PUZZLE.restaurants.map((_, r) => {
+  const owed = PUZZLE.orders.filter((o) => o.restaurant === r).length;
+  return Array.from({ length: owed }, () => {
+    const m = new THREE.Mesh(pkgGeo, pkgMat);
+    m.rotation.y = 0.5;
+    restaurantPins[r].group.add(m);
+    return m;
+  });
+});
 const housePins = PUZZLE.houses.map((p) => pinMesh(p, COLORS.house));
 const homePin = pinMesh(PUZZLE.home, COLORS.home);
+/** How many orders each restaurant still owes, shared with the minimap. */
+const restaurantOwed = PUZZLE.restaurants.map(() => 0);
 // HQ is departure-only, so it gets a floor marker and nothing to drive into.
 pinMesh(PUZZLE.hq, COLORS.hq, false);
 
@@ -261,10 +279,25 @@ function drawStatus(): void {
 
   // A restaurant stays visible while it owes you anything, and goes bright once
   // there is room aboard to actually collect from it.
-  const room = carrying(sim) < CARRY_LIMIT;
+  const load = carrying(sim);
+  const room = load < CARRY_LIMIT;
+  const bob = performance.now() / 1000;
   for (let i = 0; i < restaurantPins.length; i++) {
-    const owes = PUZZLE.orders.some((o, k) => o.restaurant === i && !(sim.picked & (1 << k)));
-    setPinState(restaurantPins[i], owes, owes && room);
+    const owed = PUZZLE.orders.filter((o, k) => o.restaurant === i && !(sim.picked & (1 << k))).length;
+    setPinState(restaurantPins[i], owed > 0, owed > 0 && room);
+    restaurantOwed[i] = owed;
+
+    for (let k = 0; k < packages[i].length; k++) {
+      const box = packages[i][k];
+      box.visible = k < owed;
+      if (!box.visible) continue;
+      // Boxes beyond what will fit in the car sit lower and still, so a full
+      // car reads as "you cannot take all of these" at a glance.
+      const fits = k < CARRY_LIMIT - load;
+      box.position.x = (k - (owed - 1) / 2) * 2.2;
+      box.position.y = PKG_Y + (fits ? Math.sin(bob * 3.2 + k * 0.8) * 0.7 : -1.4);
+      box.rotation.y = fits ? 0.5 + Math.sin(bob * 1.4 + k) * 0.25 : 0.5;
+    }
   }
   // Every undelivered house shows. Bright once its order is aboard, dim before
   // that, because knowing where it is up front is the whole planning problem.
@@ -342,7 +375,7 @@ function toScreen(wx: number, wz: number): { x: number; y: number } {
   return { x: (dx * c - dz * s) * MAP_K + MAP_MID, y: (dx * s + dz * c) * MAP_K + MAP_MID };
 }
 
-function dot(wx: number, wz: number, color: string, r: number): void {
+function dot(wx: number, wz: number, color: string, r: number): { x: number; y: number } {
   const p = toScreen(wx, wz);
   // A pin past the edge gets pinned to it rather than vanishing, so the map
   // never silently drops information the player is meant to be planning with.
@@ -356,6 +389,7 @@ function dot(wx: number, wz: number, color: string, r: number): void {
   mapCtx.arc(x, y, clamped ? r * 0.72 : r, 0, Math.PI * 2);
   mapCtx.fill();
   mapCtx.globalAlpha = 1;
+  return { x, y };
 }
 
 function drawMap(): void {
@@ -372,7 +406,18 @@ function drawMap(): void {
   mapCtx.restore();
 
   for (let i = 0; i < PUZZLE.restaurants.length; i++) {
-    if (restaurantPins[i].group.visible) dot(PUZZLE.restaurants[i].x, PUZZLE.restaurants[i].z, '#f59f2b', 9);
+    if (!restaurantOwed[i]) continue;
+    const p = PUZZLE.restaurants[i];
+    const s = dot(p.x, p.z, '#f59f2b', restaurantOwed[i] > 1 ? 12 : 9);
+    if (restaurantOwed[i] > 1) {
+      // The count is the whole point of the bigger dot: a stop that fills the
+      // car is a different route decision from one that does not.
+      mapCtx.fillStyle = '#1a1206';
+      mapCtx.font = 'bold 15px ui-monospace, monospace';
+      mapCtx.textAlign = 'center';
+      mapCtx.textBaseline = 'middle';
+      mapCtx.fillText(String(restaurantOwed[i]), s.x, s.y + 1);
+    }
   }
   for (let i = 0; i < PUZZLE.houses.length; i++) {
     const bit = 1 << i;
