@@ -9,6 +9,7 @@ import { BIT, DT, TICK_HZ, carrying, hashState, initialState, replay, step, type
 import { BLOCK, CITY, RING, blockCentre } from '../sim/city.js';
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from '../sim/fixture.js';
 import { CARRY_LIMIT, PIN_RADIUS, PUZZLE } from '../sim/puzzle.js';
+import { TRAFFIC_COUNT } from '../sim/traffic.js';
 import { solve } from '../sim/solver.js';
 
 // Perfect play for today's route. Computed once at load, ~16ms.
@@ -27,9 +28,15 @@ const BINDINGS: Record<string, Intent> = {
 const pending: { action: Intent; down: boolean }[] = [];
 const timeline: InputEvent[] = [];
 const down = new Set<Intent>();
+let paused = false;
 
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyH') return runCheck();
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    e.preventDefault();
+    return setPaused(!paused);
+  }
+  if (paused) return; // pausing blocks everything except unpausing
   const action = BINDINGS[e.code];
   if (!action || e.repeat || down.has(action)) return;
   down.add(action);
@@ -38,12 +45,37 @@ addEventListener('keydown', (e) => {
 });
 
 addEventListener('keyup', (e) => {
+  if (paused) return;
   const action = BINDINGS[e.code];
   if (!action || !down.has(action)) return;
   down.delete(action);
   pending.push({ action, down: false });
   e.preventDefault();
 });
+
+/** Apply queued intent edges to the sim and record them at the current tick. */
+function drainPending(): void {
+  for (const p of pending) {
+    timeline.push({ tick: sim.tick, action: p.action, down: p.down });
+    if (p.down) sim.held |= BIT[p.action];
+    else sim.held &= ~BIT[p.action];
+  }
+  pending.length = 0;
+}
+
+function setPaused(next: boolean): void {
+  if (next === paused) return;
+  paused = next;
+  if (paused) {
+    // Release everything held. Without this a player who pauses mid-throttle
+    // and lets go of the key resumes with the throttle still down, because the
+    // keyup was swallowed.
+    for (const action of down) pending.push({ action, down: false });
+    down.clear();
+    drainPending();
+  }
+  pauseEl.style.display = paused ? 'flex' : 'none';
+}
 
 // ----------------------------------------------------------------- the world
 
@@ -204,6 +236,17 @@ blob.position.y = 0.06;
 car.add(blob);
 scene.add(car);
 
+// --------------------------------------------------------------- the traffic
+
+const trafficMat = new THREE.MeshLambertMaterial({ color: 0x4d6b8a });
+const trafficMeshes = Array.from({ length: TRAFFIC_COUNT }, () => {
+  const m = new THREE.Mesh(box, trafficMat);
+  m.scale.set(2, 1.5, 4);
+  m.position.y = 0.9;
+  scene.add(m);
+  return m;
+});
+
 // ------------------------------------------------------------------ the loop
 
 let sim = initialState();
@@ -215,6 +258,7 @@ const speedEl = document.getElementById('speed') as HTMLElement;
 const checkEl = document.getElementById('check') as HTMLElement;
 const timerEl = document.getElementById('timer') as HTMLElement;
 const stateEl = document.getElementById('state') as HTMLElement;
+const pauseEl = document.getElementById('pause') as HTMLElement;
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
@@ -224,16 +268,19 @@ function frame(now: number): void {
   accumulator += frameDt;
   lastFrame = now;
 
+  // Paused freezes the clock and the simulation both: the accumulator is
+  // dropped rather than banked, so no time is owed on resume.
+  if (paused) {
+    accumulator = 0;
+    renderer.render(scene, camera);
+    return;
+  }
+
   while (accumulator >= DT) {
     prev = { ...sim };
-    // Edges land on the tick that consumes them, and get recorded with that
+    // Edges land on the tick that consumes them, and are recorded with that
     // same tick, so the timeline replays to exactly what was played.
-    for (const p of pending) {
-      timeline.push({ tick: sim.tick, action: p.action, down: p.down });
-      if (p.down) sim.held |= BIT[p.action];
-      else sim.held &= ~BIT[p.action];
-    }
-    pending.length = 0;
+    drainPending();
     step(sim);
     accumulator -= DT;
   }
@@ -257,6 +304,13 @@ function frame(now: number): void {
     z - Math.cos(camYaw) * CAM_DIST,
   );
   camera.lookAt(x, 0, z);
+
+  for (let i = 0; i < trafficMeshes.length; i++) {
+    const c = sim.traffic.cars[i];
+    trafficMeshes[i].position.x = c.x;
+    trafficMeshes[i].position.z = c.z;
+    trafficMeshes[i].rotation.y = c.dir * (Math.PI / 2);
+  }
 
   const speed = Math.hypot(sim.vx, sim.vz) * 3.6;
   speedEl.firstChild!.textContent = String(Math.round(speed));

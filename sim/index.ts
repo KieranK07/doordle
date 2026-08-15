@@ -9,6 +9,8 @@
 
 import { CITY } from './city.js';
 import { cos, sin } from './mathd.js';
+import { seedFrom } from './rng.js';
+import { TRAFFIC_RADIUS, advanceTraffic, spawnTraffic, type Traffic } from './traffic.js';
 import {
   CARRY_LIMIT,
   PIN_RADIUS,
@@ -36,6 +38,14 @@ export const STEER = 3.1;
 
 /** Collision radius. A circle, not the car's actual box. See resolveHits(). */
 export const CAR_RADIUS = 1.5;
+
+/**
+ * Clipping a traffic car costs you most of your momentum but never stops you
+ * dead, per SPEC.md §6. The cooldown stops a single sustained overlap from
+ * scrubbing speed every tick, which would be a full stop by another name.
+ */
+export const HIT_KEEP = 0.3;
+export const HIT_COOLDOWN = 18;
 
 export const Intent = {
   Left: 'left',
@@ -66,6 +76,9 @@ export type State = {
   delivered: number;
   /** Tick the car reached home with everything delivered, or -1 while running. */
   finishTick: number;
+  traffic: Traffic;
+  /** Ticks until another traffic hit can land. */
+  hitCooldown: number;
 };
 
 export function initialState(p: Puzzle = PUZZLE): State {
@@ -80,6 +93,8 @@ export function initialState(p: Puzzle = PUZZLE): State {
     picked: 0,
     delivered: 0,
     finishTick: -1,
+    traffic: spawnTraffic(seedFrom(`traffic:${p.hq.x},${p.hq.z}`), p.hq),
+    hitCooldown: 0,
   };
 }
 
@@ -117,8 +132,33 @@ export function step(s: State, p: Puzzle = PUZZLE): void {
   s.x += s.vx * DT;
   s.z += s.vz * DT;
   resolveHits(s);
+  // Traffic advances after the player has moved but is never influenced by it,
+  // which is what lets every player meet identical traffic.
+  advanceTraffic(s.traffic);
+  resolveTraffic(s);
   resolvePins(s, p);
   s.tick++;
+}
+
+/** Momentum loss on contact, not a stop. */
+function resolveTraffic(s: State): void {
+  if (s.hitCooldown > 0) {
+    s.hitCooldown--;
+    return;
+  }
+  const reach = CAR_RADIUS + TRAFFIC_RADIUS;
+  for (const car of s.traffic.cars) {
+    const dx = s.x - car.x;
+    const dz = s.z - car.z;
+    if (dx * dx + dz * dz > reach * reach) continue;
+    // ponytail: scale the velocity and move on. No spin, no shunt, no damage to
+    // the traffic car. Add a heading kick only if plowing through still beats
+    // threading; that is the dial SPEC.md §6 asks to be tuned.
+    s.vx *= HIT_KEEP;
+    s.vz *= HIT_KEEP;
+    s.hitCooldown = HIT_COOLDOWN;
+    return;
+  }
 }
 
 function atPin(s: State, pin: Pin): boolean {
@@ -235,7 +275,10 @@ export function hashState(s: State): number {
   for (let i = 0; i < b.length; i++) {
     h = Math.imul(h ^ b[i], 0x01000193);
   }
-  for (const n of [s.tick, s.held, s.picked, s.delivered, s.finishTick]) {
+  // Traffic is deliberately not hashed. It is a pure function of the tick, and
+  // if it ever diverged the player would collide differently, which moves the
+  // position that is hashed. Hashing it too would only make the failure louder.
+  for (const n of [s.tick, s.held, s.picked, s.delivered, s.finishTick, s.hitCooldown]) {
     h = Math.imul(h ^ n, 0x01000193);
   }
   return h >>> 0;

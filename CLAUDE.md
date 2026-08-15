@@ -2,7 +2,11 @@
 
 Daily browser racing/delivery game. `SPEC.md` is the source of truth for design — read it before changing behaviour, and update it when a design decision changes.
 
-Current phase: **Phase 3 (traffic and pause)**. Phases 0 to 2 are done. See SPEC.md §13 for the list. Don't build ahead of the current phase.
+Current phase: **Phase 4 (backend)**. Phases 0 to 3 are done. See SPEC.md §13 for the list. Don't build ahead of the current phase.
+
+Pause is a client concern only. The sim never learns about it: the loop stops
+calling `step()`, so no ticks pass and the recorded timeline cannot tell a
+paused run from an uninterrupted one.
 
 ## Non-negotiables
 
@@ -19,6 +23,7 @@ Current phase: **Phase 3 (traffic and pause)**. Phases 0 to 2 are done. See SPEC
 sim/index.ts    state, step(), replay(), hashState(), collision — no DOM, no I/O
 sim/city.ts     buildings; the car collides with these, so they live in the sim
 sim/puzzle.ts   HQ, home, restaurants, houses, orders, pin radius, carry limit
+sim/traffic.ts  deterministic traffic; never reads the player, only the tick
 sim/solver.ts   par: optimal route time, used for scoring and by the validator
 sim/mathd.ts    engine-exact trig
 sim/rng.ts      seeded RNG, daily seed derivation

@@ -20,9 +20,20 @@
       #speed span { font-size: 12px; font-weight: 500; opacity: 0.6; margin-left: 4px; }
       #keys { margin-top: 8px; opacity: 0.5; font-size: 12px; }
       #check { margin-top: 6px; font-size: 12px; opacity: 0.75; }
+      /* Fully opaque on purpose. SPEC §7: if the map stays visible while
+         paused, unlimited free planning time becomes the best strategy. */
+      #pause {
+        position: fixed; inset: 0; z-index: 10; display: none;
+        flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+        background: #4a4f57; color: #eef2f7;
+      }
+      #pause div { font-size: 54px; font-weight: 700; letter-spacing: -0.02em; }
+      #pause span { font-size: 13px; opacity: 0.7; }
       #map {
         position: fixed; right: 16px; bottom: 16px; width: 240px; height: 240px;
-        background: rgba(12, 15, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.1);
+        /* Opaque: a translucent panel lets tall pins behind it bleed through
+           and the map stops being readable at a glance. */
+        background: #0d1015; border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 10px;
       }
     </style>
@@ -36,6 +47,7 @@
       <div id="check"></div>
     </div>
     <canvas id="map" width="480" height="480"></canvas>
+    <div id="pause"><div>Paused</div><span>P or Esc to resume</span></div>
     <script type="module" src="/client/main.ts"></script>
   </body>
 </html>

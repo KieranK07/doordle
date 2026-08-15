@@ -16,7 +16,7 @@ import {
   type InputEvent,
   type State,
 } from './index.js';
-import { CITY } from './city.js';
+import { CITY, PITCH } from './city.js';
 import { PI } from './mathd.js';
 import { CARRY_LIMIT, PUZZLE, allOrders } from './puzzle.js';
 
@@ -192,6 +192,75 @@ describe('orders', () => {
     const finish = s.finishTick;
     for (let i = 0; i < 30; i++) step(s);
     expect(s.finishTick).toBe(finish);
+  });
+});
+
+describe('traffic', () => {
+  it('is identical for two players who drove differently', () => {
+    // The whole fairness claim in SPEC.md §6. Traffic must not notice the
+    // player, so wildly different driving must not change where cars are.
+    const a = initialState();
+    const b = initialState();
+    b.held = BIT.accel | BIT.left;
+    for (let i = 0; i < 600; i++) {
+      step(a);
+      step(b);
+    }
+    expect(b.traffic.cars).toEqual(a.traffic.cars);
+    expect(b.traffic.rng).toBe(a.traffic.rng);
+  });
+
+  it('stays on the roads', () => {
+    const s = initialState();
+    for (let i = 0; i < 900; i++) {
+      step(s);
+      for (const car of s.traffic.cars) {
+        const insideBuilding = CITY.some(
+          (b) => Math.abs(car.x - b.x) < b.hw && Math.abs(car.z - b.z) < b.hd,
+        );
+        expect(insideBuilding).toBe(false);
+      }
+    }
+  });
+
+  it('keeps cars inside the district', () => {
+    const s = initialState();
+    for (let i = 0; i < 1800; i++) step(s);
+    for (const car of s.traffic.cars) {
+      expect(Math.abs(car.x)).toBeLessThan(4 * PITCH);
+      expect(Math.abs(car.z)).toBeLessThan(4 * PITCH);
+    }
+  });
+
+  it('costs speed on contact without stopping the car', () => {
+    const s = initialState();
+    const car = s.traffic.cars[0];
+    // Park the player on a car at speed and see what survives the hit.
+    s.x = car.x;
+    s.z = car.z;
+    // Along the car's own heading, so grip is not scrubbing a sideways slide
+    // and the only thing that can take speed off is the hit.
+    s.vz = 30;
+    const before = Math.hypot(s.vx, s.vz);
+    step(s);
+    const after = Math.hypot(s.vx, s.vz);
+    expect(after).toBeLessThan(before * 0.5);
+    expect(after).toBeGreaterThan(0);
+    expect(s.hitCooldown).toBeGreaterThan(0);
+  });
+
+  it('does not re-hit every tick while overlapping', () => {
+    const s = initialState();
+    s.x = s.traffic.cars[0].x;
+    s.z = s.traffic.cars[0].z;
+    s.vz = 30;
+    step(s);
+    const afterFirst = Math.hypot(s.vx, s.vz);
+    s.x = s.traffic.cars[0].x;
+    s.z = s.traffic.cars[0].z;
+    step(s);
+    // Second tick still overlapping: the cooldown must protect the speed.
+    expect(Math.hypot(s.vx, s.vz)).toBeGreaterThan(afterFirst * 0.9);
   });
 });
 
