@@ -5,7 +5,7 @@
 // write to sim state directly, and the sim must never learn this file exists.
 
 import * as THREE from 'three';
-import { DT, hashState, initialState, replay, step, type InputEvent, type Intent, type State } from '../sim/index.js';
+import { BIT, DT, hashState, initialState, replay, step, type InputEvent, type Intent, type State } from '../sim/index.js';
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from '../sim/fixture.js';
 import { makeRng, seedFrom } from '../sim/rng.js';
 
@@ -39,8 +39,6 @@ addEventListener('keyup', (e) => {
   pending.push({ action, down: false });
   e.preventDefault();
 });
-
-const BIT: Record<Intent, number> = { left: 1, right: 2, accel: 4, brake: 8 };
 
 // ----------------------------------------------------------------- the world
 

@@ -30,7 +30,8 @@ export const Intent = {
 } as const;
 export type Intent = (typeof Intent)[keyof typeof Intent];
 
-const BIT: Record<Intent, number> = { left: 1, right: 2, accel: 4, brake: 8 };
+/** Held-intent bits. Exported so the input adapter cannot drift from the sim. */
+export const BIT: Record<Intent, number> = { left: 1, right: 2, accel: 4, brake: 8 };
 const INTENTS = Object.keys(BIT) as Intent[];
 
 /** What the client submits: intent edges only, never per-tick samples. */
@@ -67,7 +68,9 @@ export function step(s: State): void {
 
   // Steering authority scales with speed, so a parked car cannot spin on the spot.
   const bite = Math.min(1, Math.abs(fwd) / 8);
-  const steer = ((s.held & BIT.right ? 1 : 0) - (s.held & BIT.left ? 1 : 0)) * bite;
+  // Forward is (sin h, cos h), so the car's own right is (-cos h, sin h) and a
+  // RISING heading swings it to the left. Left adds, right subtracts.
+  const steer = ((s.held & BIT.left ? 1 : 0) - (s.held & BIT.right ? 1 : 0)) * bite;
   s.heading += steer * STEER * DT;
 
   const nfx = sin(s.heading);

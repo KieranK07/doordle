@@ -27,4 +27,4 @@ export const CANON_FINISH = 900;
  * against by the browser. Changing the handling constants changes this number,
  * and that invalidates every previously stored run.
  */
-export const CANON_HASH = 988202808;
+export const CANON_HASH = 721309172;

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { cos, sin, wrapAngle } from './mathd.js';
 import { makeRng, seedFrom } from './rng.js';
-import { hashState, initialState, replay, step, type InputEvent } from './index.js';
+import { BIT, hashState, initialState, replay, step, type InputEvent } from './index.js';
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from './fixture.js';
 
 // Every intent used, edges on odd ticks, overlapping holds.
@@ -38,14 +38,39 @@ describe('determinism', () => {
     expect(hashState(replay(nudged, FINISH))).not.toBe(hashState(replay(TIMELINE, FINISH)));
   });
 
+  it('turns toward the side that was pressed', () => {
+    // The bug this pins: `right` used to raise heading, which swings the car to
+    // its LEFT given forward = (sin h, cos h). Invisible in a hash, obvious in a
+    // car. Start facing +Z, so the car's own right is -X.
+    // Short window on purpose: at STEER 3.1 the car comes all the way back
+    // around in about two seconds, and a long sample measures nothing.
+    const drive = (turn: number) => {
+      const s = initialState();
+      s.held = BIT.accel;
+      for (let i = 0; i < 60; i++) step(s); // get up to speed, dead straight
+      s.held = BIT.accel | turn;
+      for (let i = 0; i < 12; i++) step(s);
+      return s;
+    };
+
+    const r = drive(BIT.right);
+    expect(r.heading).toBeLessThan(0);
+    expect(r.vx).toBeLessThan(0); // veering toward -X, the car's own right
+    expect(r.vz).toBeGreaterThan(0); // still mostly going forward
+
+    const l = drive(BIT.left);
+    expect(l.heading).toBeGreaterThan(0);
+    expect(l.vx).toBeGreaterThan(0);
+  });
+
   it('replaying tick by tick matches replaying in one call', () => {
     const s = initialState();
-    s.held = 4;
+    s.held = BIT.accel;
     for (let i = 0; i < 120; i++) step(s);
     const one = hashState(s);
 
     const t = initialState();
-    t.held = 4;
+    t.held = BIT.accel;
     for (let i = 0; i < 60; i++) step(t);
     for (let i = 0; i < 60; i++) step(t);
     expect(hashState(t)).toBe(one);
