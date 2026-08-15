@@ -3,9 +3,31 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { cos, sin, wrapAngle } from './mathd.js';
 import { makeRng, seedFrom } from './rng.js';
-import { BIT, CAR_RADIUS, hashState, initialState, replay, step, type InputEvent } from './index.js';
+import {
+  BIT,
+  CAR_RADIUS,
+  carrying,
+  hashState,
+  initialState,
+  replay,
+  step,
+  type InputEvent,
+  type State,
+} from './index.js';
 import { CITY } from './city.js';
 import { PI } from './mathd.js';
+import { CARRY_LIMIT, PUZZLE, allOrders } from './puzzle.js';
+
+/** The old spawn point, back when the car started at the origin. The origin is
+ *  a street intersection with a clear run down +Z, which several driving tests
+ *  depend on; HQ is wherever the puzzle put it. */
+function atOrigin(): State {
+  const s = initialState();
+  s.x = 0;
+  s.z = 0;
+  s.heading = 0;
+  return s;
+}
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from './fixture.js';
 
 // Every intent used, edges on odd ticks, overlapping holds.
@@ -47,7 +69,7 @@ describe('determinism', () => {
     // Short window on purpose: at STEER 3.1 the car comes all the way back
     // around in about two seconds, and a long sample measures nothing.
     const drive = (turn: number) => {
-      const s = initialState();
+      const s = atOrigin();
       s.held = BIT.accel;
       for (let i = 0; i < 60; i++) step(s); // get up to speed, dead straight
       s.held = BIT.accel | turn;
@@ -66,16 +88,108 @@ describe('determinism', () => {
   });
 
   it('replaying tick by tick matches replaying in one call', () => {
-    const s = initialState();
+    const s = atOrigin();
     s.held = BIT.accel;
     for (let i = 0; i < 120; i++) step(s);
     const one = hashState(s);
 
-    const t = initialState();
+    const t = atOrigin();
     t.held = BIT.accel;
     for (let i = 0; i < 60; i++) step(t);
     for (let i = 0; i < 60; i++) step(t);
     expect(hashState(t)).toBe(one);
+  });
+});
+
+describe('orders', () => {
+  // Teleport rather than drive: these test the rules, not the driving.
+  const park = (pin: { x: number; z: number }, s = initialState()) => {
+    s.x = pin.x;
+    s.z = pin.z;
+    step(s);
+    return s;
+  };
+
+  it('picks up at the restaurant and drops at the house', () => {
+    // One restaurant can owe several orders, and driving through collects all
+    // of them at once up to the carry limit. Only order 0 is asserted here.
+    const order = PUZZLE.orders[0];
+    const s = park(PUZZLE.restaurants[order.restaurant]);
+    expect(s.picked & 1).toBeTruthy();
+    const load = carrying(s);
+    expect(load).toBeGreaterThan(0);
+
+    park(PUZZLE.houses[order.house], s);
+    expect(s.delivered & 1).toBeTruthy();
+    expect(carrying(s)).toBe(load - 1);
+  });
+
+  it('will not drop an order it never picked up', () => {
+    const s = park(PUZZLE.houses[PUZZLE.orders[0].house]);
+    expect(s.delivered).toBe(0);
+  });
+
+  it('never carries more than the limit', () => {
+    // Load up to the limit by hand, then sit on a restaurant that still owes
+    // something. Built this way so it holds whatever the generator produced.
+    const s = initialState();
+    s.picked = (1 << CARRY_LIMIT) - 1;
+    expect(carrying(s)).toBe(CARRY_LIMIT);
+
+    const waiting = PUZZLE.orders.findIndex((_, i) => !(s.picked & (1 << i)));
+    expect(waiting).toBeGreaterThan(-1);
+
+    const before = s.picked;
+    park(PUZZLE.restaurants[PUZZLE.orders[waiting].restaurant], s);
+    for (let i = 0; i < 60; i++) step(s);
+    expect(s.picked).toBe(before);
+    expect(carrying(s)).toBe(CARRY_LIMIT);
+  });
+
+  it('finishes only at home, and only with everything delivered', () => {
+    const s = initialState();
+    park(PUZZLE.home, s);
+    expect(s.finishTick).toBe(-1); // nothing delivered yet
+
+    s.picked = allOrders(PUZZLE);
+    s.delivered = allOrders(PUZZLE);
+    park(PUZZLE.restaurants[0], s);
+    expect(s.finishTick).toBe(-1); // delivered, but not home
+
+    park(PUZZLE.home, s);
+    expect(s.finishTick).toBe(s.tick - 1);
+  });
+
+  it('can be completed start to finish under the carry limit', () => {
+    // Teleports between pins rather than driving, so this proves the ORDER SET
+    // is completable, not that a route exists. Phase 6's validator is what has
+    // to prove the latter.
+    const s = initialState();
+    const all = allOrders(PUZZLE);
+    for (let guard = 0; guard < 20 && s.delivered !== all; guard++) {
+      for (let i = 0; i < PUZZLE.orders.length; i++) {
+        if (!(s.picked & (1 << i))) park(PUZZLE.restaurants[PUZZLE.orders[i].restaurant], s);
+      }
+      for (let i = 0; i < PUZZLE.orders.length; i++) {
+        const bit = 1 << i;
+        if (s.picked & bit && !(s.delivered & bit)) park(PUZZLE.houses[PUZZLE.orders[i].house], s);
+      }
+    }
+    expect(s.delivered).toBe(all);
+    expect(s.finishTick).toBe(-1); // not home yet, so still running
+
+    park(PUZZLE.home, s);
+    expect(s.finishTick).toBeGreaterThan(0);
+  });
+
+  it('stops the clock once, and stays stopped', () => {
+    const s = initialState();
+    s.picked = allOrders(PUZZLE);
+    s.delivered = allOrders(PUZZLE);
+    park(PUZZLE.home, s);
+    const finish = s.finishTick;
+    for (let i = 0; i < 30; i++) step(s);
+    expect(s.finishTick).toBe(finish);
   });
 });
 
@@ -122,8 +236,8 @@ describe('collision', () => {
   });
 
   it('leaves a car driving down an open street alone', () => {
-    // Spawn is a street intersection and +Z from there is clear the whole way.
-    const s = initialState();
+    // The origin is a street intersection and +Z from there is clear the way out.
+    const s = atOrigin();
     s.held = BIT.accel;
     for (let i = 0; i < 600; i++) step(s);
     expect(s.x).toBe(0);

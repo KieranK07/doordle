@@ -5,9 +5,10 @@
 // write to sim state directly, and the sim must never learn this file exists.
 
 import * as THREE from 'three';
-import { BIT, DT, hashState, initialState, replay, step, type InputEvent, type Intent, type State } from '../sim/index.js';
+import { BIT, DT, TICK_HZ, carrying, hashState, initialState, replay, step, type InputEvent, type Intent, type State } from '../sim/index.js';
 import { BLOCK, CITY, RING, blockCentre } from '../sim/city.js';
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from '../sim/fixture.js';
+import { CARRY_LIMIT, PIN_RADIUS, PUZZLE } from '../sim/puzzle.js';
 
 // ---------------------------------------------------------------- input layer
 
@@ -106,6 +107,38 @@ for (const b of CITY) {
 }
 scene.add(city);
 
+// ------------------------------------------------------------------- the pins
+
+// Colour carries all the meaning: orange = go get it, blue = take it here,
+// green = your house. A pin you no longer need disappears.
+const postGeo = new THREE.CylinderGeometry(1.1, 0.45, 9, 12);
+// The ground ring is drawn at the real PIN_RADIUS, so the marker never lies
+// about how close you actually have to get.
+const ringGeo = new THREE.CircleGeometry(PIN_RADIUS, 22);
+const COLORS = { restaurant: 0xf59f2b, house: 0x3d7ff2, home: 0x2fd07a, hq: 0x8a94a6 };
+
+function pinMesh(pin: { x: number; z: number }, color: number, post = true): THREE.Group {
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35 }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.08;
+  g.add(ring);
+  if (post) {
+    const p = new THREE.Mesh(postGeo, new THREE.MeshLambertMaterial({ color }));
+    p.position.y = 4.5;
+    g.add(p);
+  }
+  g.position.set(pin.x, 0, pin.z);
+  scene.add(g);
+  return g;
+}
+
+const restaurantPins: THREE.Group[] = PUZZLE.restaurants.map((p) => pinMesh(p, COLORS.restaurant));
+const housePins: THREE.Group[] = PUZZLE.houses.map((p) => pinMesh(p, COLORS.house));
+const homePin = pinMesh(PUZZLE.home, COLORS.home);
+// HQ is departure-only, so it gets a floor marker and nothing to drive into.
+pinMesh(PUZZLE.hq, COLORS.hq, false);
+
 // ------------------------------------------------------------------- the car
 
 const car = new THREE.Group();
@@ -139,6 +172,8 @@ let lastFrame = performance.now();
 
 const speedEl = document.getElementById('speed') as HTMLElement;
 const checkEl = document.getElementById('check') as HTMLElement;
+const timerEl = document.getElementById('timer') as HTMLElement;
+const stateEl = document.getElementById('state') as HTMLElement;
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
@@ -184,8 +219,121 @@ function frame(now: number): void {
 
   const speed = Math.hypot(sim.vx, sim.vz) * 3.6;
   speedEl.firstChild!.textContent = String(Math.round(speed));
+  drawStatus();
+  drawMap();
 
   renderer.render(scene, camera);
+}
+
+function clock(ticks: number): string {
+  const total = ticks / TICK_HZ;
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, '0')}`;
+}
+
+function drawStatus(): void {
+  const all = PUZZLE.orders.length;
+  const done = countSetBits(sim.delivered);
+
+  // A restaurant is worth stopping at only while it still owes you something.
+  for (let i = 0; i < restaurantPins.length; i++) {
+    restaurantPins[i].visible = PUZZLE.orders.some(
+      (o, k) => o.restaurant === i && !(sim.picked & (1 << k)),
+    );
+  }
+  // A house matters once its order is aboard, and stops mattering once dropped.
+  for (let i = 0; i < housePins.length; i++) {
+    const bit = 1 << i;
+    housePins[i].visible = Boolean(sim.picked & bit) && !(sim.delivered & bit);
+  }
+  homePin.visible = done === all;
+
+  timerEl.textContent = clock(sim.finishTick >= 0 ? sim.finishTick : sim.tick);
+  if (sim.finishTick >= 0) {
+    stateEl.textContent = `delivered ${all}/${all} · FINISHED`;
+    stateEl.style.color = '#6ee7a8';
+  } else {
+    stateEl.textContent = `delivered ${done}/${all} · carrying ${carrying(sim)}/${CARRY_LIMIT}`;
+    stateEl.style.color = '';
+  }
+}
+
+function countSetBits(mask: number): number {
+  let n = 0;
+  for (let m = mask; m; m >>= 1) n += m & 1;
+  return n;
+}
+
+// -------------------------------------------------------------- the minimap
+
+// SPEC.md §2 gives the player the whole order list up front, which is only true
+// if they can see where the pins are. The chase camera shows maybe a block and
+// a half, so without this the game is guesswork.
+const mapCanvas = document.getElementById('map') as HTMLCanvasElement;
+const mapCtx = mapCanvas.getContext('2d')!;
+const MAP_PX = mapCanvas.width;
+
+const pins = [PUZZLE.hq, PUZZLE.home, ...PUZZLE.restaurants, ...PUZZLE.houses];
+const span = Math.max(
+  ...pins.map((p) => Math.max(Math.abs(p.x), Math.abs(p.z))),
+) + 70;
+const toMap = (v: number) => ((v + span) / (span * 2)) * MAP_PX;
+
+// Buildings never move, so they get drawn once and blitted after that.
+const backdrop = document.createElement('canvas');
+backdrop.width = backdrop.height = MAP_PX;
+{
+  const b = backdrop.getContext('2d')!;
+  b.fillStyle = '#79879a';
+  for (const bd of CITY) {
+    const w = ((bd.hw * 2) / (span * 2)) * MAP_PX;
+    const d = ((bd.hd * 2) / (span * 2)) * MAP_PX;
+    b.fillRect(toMap(bd.x) - w / 2, toMap(bd.z) - d / 2, w, d);
+  }
+}
+
+function dot(x: number, z: number, color: string, r: number): void {
+  mapCtx.fillStyle = color;
+  mapCtx.beginPath();
+  mapCtx.arc(toMap(x), toMap(z), r, 0, Math.PI * 2);
+  mapCtx.fill();
+}
+
+function drawMap(): void {
+  mapCtx.clearRect(0, 0, MAP_PX, MAP_PX);
+  mapCtx.globalAlpha = 0.5;
+  mapCtx.drawImage(backdrop, 0, 0);
+  mapCtx.globalAlpha = 1;
+
+  for (let i = 0; i < PUZZLE.restaurants.length; i++) {
+    if (restaurantPins[i].visible) dot(PUZZLE.restaurants[i].x, PUZZLE.restaurants[i].z, '#f59f2b', 9);
+  }
+  for (let i = 0; i < PUZZLE.houses.length; i++) {
+    const bit = 1 << i;
+    // Houses you are not carrying for yet still show, dimmer: that is the
+    // planning information the whole puzzle rests on.
+    if (sim.delivered & bit) continue;
+    dot(PUZZLE.houses[i].x, PUZZLE.houses[i].z, sim.picked & bit ? '#3d7ff2' : 'rgba(61,127,242,0.35)', 8);
+  }
+  dot(PUZZLE.home.x, PUZZLE.home.z, '#2fd07a', 9);
+
+  // The car, pointed the way it is facing.
+  const cx = toMap(sim.x);
+  const cz = toMap(sim.z);
+  mapCtx.save();
+  mapCtx.translate(cx, cz);
+  // World +Z is down on the map and forward is (sin h, cos h), so the nose is
+  // drawn at +y and the rotation is negated.
+  mapCtx.rotate(-sim.heading);
+  mapCtx.fillStyle = '#ff5540';
+  mapCtx.beginPath();
+  mapCtx.moveTo(0, 11);
+  mapCtx.lineTo(7, -8);
+  mapCtx.lineTo(-7, -8);
+  mapCtx.closePath();
+  mapCtx.fill();
+  mapCtx.restore();
 }
 requestAnimationFrame(frame);
 

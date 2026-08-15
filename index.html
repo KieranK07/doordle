@@ -14,18 +14,28 @@
         background: rgba(12, 15, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 10px; padding: 12px 14px; min-width: 190px;
       }
-      #speed { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
-      #speed span { font-size: 13px; font-weight: 500; opacity: 0.55; margin-left: 4px; }
+      #timer { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+      #state { margin-top: 2px; font-size: 12px; opacity: 0.8; }
+      #speed { margin-top: 10px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; opacity: 0.75; }
+      #speed span { font-size: 12px; font-weight: 500; opacity: 0.6; margin-left: 4px; }
       #keys { margin-top: 8px; opacity: 0.5; font-size: 12px; }
       #check { margin-top: 6px; font-size: 12px; opacity: 0.75; }
+      #map {
+        position: fixed; right: 16px; bottom: 16px; width: 240px; height: 240px;
+        background: rgba(12, 15, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+      }
     </style>
   </head>
   <body>
     <div id="hud">
+      <div id="timer">0:00.00</div>
+      <div id="state"></div>
       <div id="speed">0<span>km/h</span></div>
       <div id="keys">WASD drive &middot; H determinism check</div>
       <div id="check"></div>
     </div>
+    <canvas id="map" width="480" height="480"></canvas>
     <script type="module" src="/client/main.ts"></script>
   </body>
 </html>

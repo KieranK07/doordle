@@ -9,6 +9,15 @@
 
 import { CITY } from './city.js';
 import { cos, sin } from './mathd.js';
+import {
+  CARRY_LIMIT,
+  PIN_RADIUS,
+  PUZZLE,
+  allOrders,
+  countBits,
+  type Pin,
+  type Puzzle,
+} from './puzzle.js';
 
 export const TICK_HZ = 60;
 export const DT = 1 / TICK_HZ;
@@ -51,14 +60,36 @@ export type State = {
   heading: number;
   vx: number;
   vz: number;
+  /** One bit per order, set when collected from its restaurant. */
+  picked: number;
+  /** One bit per order, set when dropped at its house. */
+  delivered: number;
+  /** Tick the car reached home with everything delivered, or -1 while running. */
+  finishTick: number;
 };
 
-export function initialState(): State {
-  return { tick: 0, held: 0, x: 0, z: 0, heading: 0, vx: 0, vz: 0 };
+export function initialState(p: Puzzle = PUZZLE): State {
+  return {
+    tick: 0,
+    held: 0,
+    x: p.hq.x,
+    z: p.hq.z,
+    heading: 0,
+    vx: 0,
+    vz: 0,
+    picked: 0,
+    delivered: 0,
+    finishTick: -1,
+  };
+}
+
+/** Orders on board right now. */
+export function carrying(s: State): number {
+  return countBits(s.picked) - countBits(s.delivered);
 }
 
 /** Advance exactly one tick. Mutates in place: this runs 36000 times a replay. */
-export function step(s: State): void {
+export function step(s: State, p: Puzzle = PUZZLE): void {
   const fx = sin(s.heading);
   const fz = cos(s.heading);
   const rx = fz;
@@ -86,7 +117,44 @@ export function step(s: State): void {
   s.x += s.vx * DT;
   s.z += s.vz * DT;
   resolveHits(s);
+  resolvePins(s, p);
   s.tick++;
+}
+
+function atPin(s: State, pin: Pin): boolean {
+  const dx = s.x - pin.x;
+  const dz = s.z - pin.z;
+  return dx * dx + dz * dz <= PIN_RADIUS * PIN_RADIUS;
+}
+
+/**
+ * Pickups and dropoffs complete by driving through the pin. No button, no
+ * required stop, per SPEC.md §4.
+ *
+ * Everything here is ordered by order index so two pins overlapping on the same
+ * tick always resolve the same way.
+ */
+function resolvePins(s: State, p: Puzzle): void {
+  if (s.finishTick >= 0) return;
+
+  let load = carrying(s);
+  for (let i = 0; i < p.orders.length; i++) {
+    if (load >= CARRY_LIMIT) break; // full: nothing else can board this tick
+    const bit = 1 << i;
+    if (s.picked & bit) continue;
+    if (!atPin(s, p.restaurants[p.orders[i].restaurant])) continue;
+    s.picked |= bit;
+    load++;
+  }
+
+  for (let i = 0; i < p.orders.length; i++) {
+    const bit = 1 << i;
+    if (!(s.picked & bit) || s.delivered & bit) continue;
+    if (!atPin(s, p.houses[p.orders[i].house])) continue;
+    s.delivered |= bit;
+  }
+
+  if (s.delivered === allOrders(p) && atPin(s, p.home)) s.finishTick = s.tick;
 }
 
 /**
@@ -128,7 +196,11 @@ function resolveHits(s: State): void {
  * server, so the timeline is untrusted: anything malformed throws rather than
  * quietly producing a time.
  */
-export function replay(events: readonly InputEvent[], untilTick: number): State {
+export function replay(
+  events: readonly InputEvent[],
+  untilTick: number,
+  p: Puzzle = PUZZLE,
+): State {
   if (!Number.isInteger(untilTick) || untilTick < 0 || untilTick > MAX_TICKS) {
     throw new Error(`bad finish tick: ${untilTick}`);
   }
@@ -142,7 +214,7 @@ export function replay(events: readonly InputEvent[], untilTick: number): State 
     last = e.tick;
   }
 
-  const s = initialState();
+  const s = initialState(p);
   let i = 0;
   while (s.tick < untilTick) {
     while (i < events.length && events[i].tick === s.tick) {
@@ -150,7 +222,7 @@ export function replay(events: readonly InputEvent[], untilTick: number): State 
       if (e.down) s.held |= BIT[e.action];
       else s.held &= ~BIT[e.action];
     }
-    step(s);
+    step(s, p);
   }
   return s;
 }
@@ -163,7 +235,8 @@ export function hashState(s: State): number {
   for (let i = 0; i < b.length; i++) {
     h = Math.imul(h ^ b[i], 0x01000193);
   }
-  h = Math.imul(h ^ s.tick, 0x01000193);
-  h = Math.imul(h ^ s.held, 0x01000193);
+  for (const n of [s.tick, s.held, s.picked, s.delivered, s.finishTick]) {
+    h = Math.imul(h ^ n, 0x01000193);
+  }
   return h >>> 0;
 }
