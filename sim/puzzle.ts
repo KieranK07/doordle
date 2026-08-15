@@ -6,7 +6,7 @@
 // function of that date, which is what lets the queue be validated 30 days out
 // (SPEC.md §12) with no rows to keep in sync and nothing to generate same-day.
 
-import { RING, streetSlots, type Pin } from './city.js';
+import { type Pin } from './city.js';
 import { DISTRICTS, hqOf, slotsIn, type District } from './district.js';
 import { makeRng } from './rng.js';
 
@@ -164,9 +164,42 @@ export function makePuzzle(seed: number, district: District = DISTRICTS[0]): Puz
  * ponytail: the pool is derived from code, not stored. Slots are deterministic
  * and never move (SPEC.md §3 forbids it), so the database only has to remember
  * which ones are claimed. No seeding step, nothing to keep in sync.
+ *
+ * Ordered by district, in district growth order. A stored claim is an index into
+ * this list, so the ordering is a permanent contract: walking the raw grid
+ * instead would renumber every house the moment the city widened, and hand
+ * players someone else's address. Districts append, so this only ever grows at
+ * the end. It also packs the city centre-outwards for free.
  */
 export function houseSlots(): Pin[] {
-  return streetSlots(0, 0, RING);
+  const seen = new Set<string>();
+  const out: Pin[] = [];
+  for (const d of DISTRICTS) {
+    for (const s of slotsIn(d)) {
+      // Districts tile edge to edge, so a boundary street belongs to both. The
+      // earlier district keeps it, which is stable under growth.
+      const key = `${s.x},${s.z}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/** Which district a house slot sits in, for the growth check. */
+export function districtOfSlot(slot: number): District {
+  const seen = new Set<string>();
+  let n = 0;
+  for (const d of DISTRICTS) {
+    for (const s of slotsIn(d)) {
+      const key = `${s.x},${s.z}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (n++ === slot) return d;
+    }
+  }
+  throw new Error(`no such house slot: ${slot}`);
 }
 
 /** Bitmask with one bit per order, all set. */

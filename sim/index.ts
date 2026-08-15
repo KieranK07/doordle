@@ -7,7 +7,7 @@
 //   - no Math.* beyond the engine-exact ones (see mathd.ts)
 //   - 2D only. The renderer is 3D, the sim is not.
 
-import { CITY } from './city.js';
+import { CITY, buildingsNear } from './city.js';
 import { cos, sin } from './mathd.js';
 import { seedFrom } from './rng.js';
 import { TRAFFIC_RADIUS, advanceTraffic, spawnTraffic, type Traffic } from './traffic.js';
@@ -201,17 +201,20 @@ function resolvePins(s: State, p: Puzzle): void {
  * velocity component pointing into the wall so it slides along the face rather
  * than stopping dead.
  *
- * ponytail: circle vs AABB, and a full scan of every building each tick. The
- * circle means corners round off slightly instead of catching; swap for an OBB
- * only if scraping past a doorway feels wrong. The scan is O(buildings) per
- * tick, fine at a few hundred, so add a uniform grid when a district pushes it
- * into the thousands.
+ * ponytail: circle vs AABB. The circle means corners round off slightly instead
+ * of catching; swap for an OBB only if scraping past a doorway feels wrong.
+ *
+ * Candidates come from the bucket grid in city.ts rather than a full scan,
+ * which is what keeps a 36000-tick replay affordable as the city grows. The
+ * bucket holds every building that could touch the car, in CITY order, so this
+ * behaves exactly as the old scan did.
  *
  * Tunnelling is not handled: at 0.7 units of travel per tick against buildings
  * ten units thick it cannot happen. It could if either number changed a lot.
  */
 function resolveHits(s: State): void {
-  for (const b of CITY) {
+  for (const i of buildingsNear(s.x, s.z)) {
+    const b = CITY[i];
     const dx = s.x - b.x;
     const overlapX = b.hw + CAR_RADIUS - Math.abs(dx);
     if (overlapX <= 0) continue;

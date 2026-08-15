@@ -9,7 +9,7 @@
 // This sits above the generator instead of inside it because validation needs
 // the solver, and the solver needs the puzzle shape. One direction only.
 
-import { districtFor, slotsIn } from './district.js';
+import { districtFor, districtsOn, slotsIn } from './district.js';
 import { TICK_HZ } from './index.js';
 import {
   CARRY_LIMIT,
@@ -121,7 +121,9 @@ export function puzzleFor(date: string): Puzzle {
   // mutating a cached order would silently change the day for everyone after.
   if (hit) return structuredClone(hit);
 
-  const district = districtFor(puzzleNumber(date));
+  // The districts in service on that date, not the ones in service now: the
+  // city may have grown since, and a past day has to stay the day it was.
+  const district = districtFor(puzzleNumber(date), districtsOn(date));
   let puzzle = makePuzzle(seedFrom(`doordle:${date}:0`), district);
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const p = makePuzzle(seedFrom(`doordle:${date}:${attempt}`), district);

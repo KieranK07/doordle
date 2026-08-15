@@ -11,6 +11,7 @@ import {
   CITY_RINGS,
   DISTRICT_PITCH,
   DISTRICT_RING,
+  ringsOn,
   streetSlots,
   type Pin,
 } from './city.js';
@@ -61,6 +62,15 @@ export function districts(rings: number = CITY_RINGS): District[] {
 
 export const DISTRICTS: readonly District[] = districts();
 
+/**
+ * The districts in service on a given date. Rotation runs over this rather than
+ * over DISTRICTS, so appending a ring changes which district hosts future days
+ * and leaves every past day exactly as it was played.
+ */
+export function districtsOn(date: string): District[] {
+  return districts(ringsOn(date));
+}
+
 /** Every pin position inside a district. */
 export function slotsIn(d: District): Pin[] {
   return streetSlots(d.gx, d.gz, DISTRICT_RING);
@@ -81,9 +91,10 @@ export function hqOf(d: District): Pin {
  * every district gets the same share of home-field days and the schedule is
  * knowable months ahead instead of drawn fresh each morning.
  *
- * ponytail: a plain modulo. When the city grows mid-rotation the sequence
- * shifts, which is harmless with equal shares; if growth ever needs to preserve
- * an in-flight order, store the schedule instead of deriving it.
+ * Callers pass the districts that were in service on the day in question (see
+ * districtsOn), because the list length is the modulus: rotating over today's
+ * list would hand a past date a different district and silently re-roll a
+ * puzzle somebody has already played.
  */
 export function districtFor(day: number, list: readonly District[] = DISTRICTS): District {
   return list[((day % list.length) + list.length) % list.length];

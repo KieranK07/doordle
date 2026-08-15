@@ -346,9 +346,17 @@ describe('collision', () => {
     s.heading = 0.5; // angled into the face, not square on
     s.held = BIT.accel;
     const startX = s.x;
-    for (let i = 0; i < 180; i++) step(s, PUZZLE);
+    // Contact is checked as it happens rather than at the end: how far along the
+    // face the car gets before it runs off the end is a fact about one
+    // building's width, and this claim is about collision, not about geometry.
+    let ejected = false;
+    for (let i = 0; i < 180; i++) {
+      step(s, PUZZLE);
+      if (s.vz === 0) ejected = true; // pushed out: the wall-normal speed died
+      expect(inside(s.x, s.z)).toBe(false);
+    }
+    expect(ejected).toBe(true);
     expect(s.x - startX).toBeGreaterThan(5);
-    expect(s.vz).toBe(0);
   });
 
   it('leaves a car driving down an open street alone', () => {

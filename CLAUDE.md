@@ -2,7 +2,8 @@
 
 Daily browser racing/delivery game. `SPEC.md` is the source of truth for design — read it before changing behaviour, and update it when a design decision changes.
 
-Current phase: **Phase 6 (generation pipeline)**. Phases 0 to 5 are done and deployed. See SPEC.md §13 for the list. Don't build ahead of the current phase.
+All seven phases in SPEC.md §13 are done and deployed. New work is tuning and
+polish, not phases. See SPEC.md §13 for the list. Don't build ahead of the current phase.
 
 Pause is a client concern only. The sim never learns about it: the loop stops
 calling `step()`, so no ticks pass and the recorded timeline cannot tell a
@@ -23,6 +24,7 @@ paused run from an uninterrupted one.
 sim/index.ts    state, step(), replay(), hashState(), collision — no DOM, no I/O
 sim/city.ts     buildings and street geometry; the car collides with these
 sim/district.ts district list, growth order, per-district HQ, daily rotation
+sim/growth.ts   outer-player completion times and the 5-minute growth trigger
 sim/puzzle.ts   the generator: HQ, home, restaurants, houses, orders, flavor
 sim/daily.ts    puzzleFor(date), the validator, and the 30-day queue check
 sim/traffic.ts  deterministic traffic; never reads the player, only the tick
@@ -49,6 +51,26 @@ Any change to the handling constants, collision, or the puzzle changes
 `CANON_HASH` in `sim/fixture.ts`. Repin it from the failing test. Free today;
 once runs are stored it invalidates every recorded time, so from Phase 4 on,
 treat a hash change as a migration rather than a tweak.
+
+## Growing the city
+
+`GROWTH_LOG` in `sim/city.ts` is the dial: one appended row, one deploy. Never
+edit or remove an existing row and never date a new one inside the validated
+queue — the rotation is `day % districts.length`, so changing the modulus for a
+past date re-rolls a puzzle somebody already played.
+
+Three things must stay append-only, and `sim/growth.test.ts` asserts each:
+block order (collision walks the building list in sequence and each ejection
+moves the car, so order is physics), building geometry (each block is seeded
+from its own coordinates, never one stream walking the grid), and the
+house-slot pool (a stored claim is an index into it).
+
+`npm run growth` decides whether to grow, from the solver rather than from pool
+occupancy. It reports; the append is a reviewed change.
+
+Collision reads a bucket grid (`buildingsNear`), not the whole city. The bucket
+is a superset of a full scan in CITY order, so it is a speed-up and not a
+physics change — keep it that way, and `SLACK` above `CAR_RADIUS`.
 
 ## The daily puzzle
 

@@ -241,3 +241,11 @@ Camera yaw follows the car's heading with a lag rather than snapping to it. With
 **Stack:** TypeScript throughout, Vite for the client, Three.js for rendering, Node for the server, vitest for tests. One package, no monorepo tooling.
 
 **Determinism test:** FNV-1a hash over the serialized sim state, asserted identical across 1000 replays of a fixed input timeline.
+
+**City growth is a dated log, not a flag.** `GROWTH_LOG` in `sim/city.ts` records when each ring of districts came into service, and the daily rotation picks its district out of the districts that existed *on that date*. Growing is one appended row and a deploy.
+
+The reason it is dated rather than a single "how big is the city now" number: the rotation is `day % districts.length`, so widening the city changes that modulus and would silently re-roll every past puzzle, invalidating every time already on the leaderboard. Never edit or delete an existing row, and date a new one past the end of the validated queue so the days it changes have not been played yet.
+
+Three things must stay append-only for this to hold, and each has a test: block order (collision walks the building list in sequence and each ejection moves the car, so order is physics), building geometry (each block is seeded from its own coordinates, never from one stream walking the grid), and the house-slot pool (a stored claim is an index into it, so a reorder hands players someone else's address).
+
+**Growth is decided by the solver, not by pool occupancy.** `npm run growth` computes the optimal completion time for a spread of addresses in the outermost districts across a span of days, and compares the mean against a 5-minute limit. Predictable months ahead, and not skewed by bad drivers. It reports; the append itself is a reviewed code change, because getting it wrong moves houses people already own.
