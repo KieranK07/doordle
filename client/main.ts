@@ -273,38 +273,74 @@ function countSetBits(mask: number): number {
 const mapCanvas = document.getElementById('map') as HTMLCanvasElement;
 const mapCtx = mapCanvas.getContext('2d')!;
 const MAP_PX = mapCanvas.width;
+const MAP_MID = MAP_PX / 2;
 
-const pins = [PUZZLE.hq, PUZZLE.home, ...PUZZLE.restaurants, ...PUZZLE.houses];
-const span = Math.max(
-  ...pins.map((p) => Math.max(Math.abs(p.x), Math.abs(p.z))),
-) + 70;
-const toMap = (v: number) => ((v + span) / (span * 2)) * MAP_PX;
+/** World half-extent visible on the map, and the world-to-pixel scale. */
+const MAP_RANGE = 300;
+const MAP_K = MAP_MID / MAP_RANGE;
 
-// Buildings never move, so they get drawn once and blitted after that.
+// Buildings never move, so they get drawn once into a world-aligned image and
+// blitted under the rotation after that.
+const BACKDROP_WORLD = 900;
 const backdrop = document.createElement('canvas');
-backdrop.width = backdrop.height = MAP_PX;
+backdrop.width = backdrop.height = 900;
 {
   const b = backdrop.getContext('2d')!;
+  const toBackdrop = (v: number) => ((v + BACKDROP_WORLD / 2) / BACKDROP_WORLD) * backdrop.width;
+  const k = backdrop.width / BACKDROP_WORLD;
   b.fillStyle = '#79879a';
   for (const bd of CITY) {
-    const w = ((bd.hw * 2) / (span * 2)) * MAP_PX;
-    const d = ((bd.hd * 2) / (span * 2)) * MAP_PX;
-    b.fillRect(toMap(bd.x) - w / 2, toMap(bd.z) - d / 2, w, d);
+    b.fillRect(toBackdrop(bd.x) - bd.hw * k, toBackdrop(bd.z) - bd.hd * k, bd.hw * 2 * k, bd.hd * 2 * k);
   }
 }
 
-function dot(x: number, z: number, color: string, r: number): void {
+/**
+ * The map turns with the car, so up on the map is the direction you are
+ * pointed, matching the chase camera. Forward is (sin h, cos h) and +Z is down
+ * in map space, so rotating by (heading - PI) puts forward at the top.
+ */
+function mapAngle(): number {
+  return sim.heading - Math.PI;
+}
+
+/** World point to map pixel, honouring the rotation. */
+function toScreen(wx: number, wz: number): { x: number; y: number } {
+  const a = mapAngle();
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const dx = wx - sim.x;
+  const dz = wz - sim.z;
+  return { x: (dx * c - dz * s) * MAP_K + MAP_MID, y: (dx * s + dz * c) * MAP_K + MAP_MID };
+}
+
+function dot(wx: number, wz: number, color: string, r: number): void {
+  const p = toScreen(wx, wz);
+  // A pin past the edge gets pinned to it rather than vanishing, so the map
+  // never silently drops information the player is meant to be planning with.
+  const m = r + 3;
+  const x = Math.min(MAP_PX - m, Math.max(m, p.x));
+  const y = Math.min(MAP_PX - m, Math.max(m, p.y));
+  const clamped = x !== p.x || y !== p.y;
   mapCtx.fillStyle = color;
+  mapCtx.globalAlpha = clamped ? 0.65 : 1;
   mapCtx.beginPath();
-  mapCtx.arc(toMap(x), toMap(z), r, 0, Math.PI * 2);
+  mapCtx.arc(x, y, clamped ? r * 0.72 : r, 0, Math.PI * 2);
   mapCtx.fill();
+  mapCtx.globalAlpha = 1;
 }
 
 function drawMap(): void {
   mapCtx.clearRect(0, 0, MAP_PX, MAP_PX);
+
+  mapCtx.save();
+  mapCtx.translate(MAP_MID, MAP_MID);
+  mapCtx.rotate(mapAngle());
+  mapCtx.scale(MAP_K, MAP_K);
+  mapCtx.translate(-sim.x, -sim.z);
   mapCtx.globalAlpha = 0.5;
-  mapCtx.drawImage(backdrop, 0, 0);
+  mapCtx.drawImage(backdrop, -BACKDROP_WORLD / 2, -BACKDROP_WORLD / 2, BACKDROP_WORLD, BACKDROP_WORLD);
   mapCtx.globalAlpha = 1;
+  mapCtx.restore();
 
   for (let i = 0; i < PUZZLE.restaurants.length; i++) {
     if (restaurantPins[i].visible) dot(PUZZLE.restaurants[i].x, PUZZLE.restaurants[i].z, '#f59f2b', 9);
@@ -318,22 +354,15 @@ function drawMap(): void {
   }
   dot(PUZZLE.home.x, PUZZLE.home.z, '#2fd07a', 9);
 
-  // The car, pointed the way it is facing.
-  const cx = toMap(sim.x);
-  const cz = toMap(sim.z);
-  mapCtx.save();
-  mapCtx.translate(cx, cz);
-  // World +Z is down on the map and forward is (sin h, cos h), so the nose is
-  // drawn at +y and the rotation is negated.
-  mapCtx.rotate(-sim.heading);
+  // The car sits at the centre and always points up, because the world is what
+  // rotates now.
   mapCtx.fillStyle = '#ff5540';
   mapCtx.beginPath();
-  mapCtx.moveTo(0, 11);
-  mapCtx.lineTo(7, -8);
-  mapCtx.lineTo(-7, -8);
+  mapCtx.moveTo(MAP_MID, MAP_MID - 11);
+  mapCtx.lineTo(MAP_MID + 7, MAP_MID + 8);
+  mapCtx.lineTo(MAP_MID - 7, MAP_MID + 8);
   mapCtx.closePath();
   mapCtx.fill();
-  mapCtx.restore();
 }
 requestAnimationFrame(frame);
 
