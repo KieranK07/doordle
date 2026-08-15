@@ -8,6 +8,15 @@
 // cross-engine question, and it costs one page load plus one keypress.
 
 import type { InputEvent } from './index.js';
+import { puzzleFor, type Puzzle } from './puzzle.js';
+
+/**
+ * The fixture pins its own day. Now that puzzles are derived from the date, a
+ * fixture using "today" would change its hash every midnight and the pin would
+ * be worthless.
+ */
+export const CANON_DATE = '2026-01-01';
+export const CANON_PUZZLE: Puzzle = puzzleFor(CANON_DATE);
 
 export const CANON_TIMELINE: readonly InputEvent[] = [
   { tick: 0, action: 'accel', down: true },
@@ -27,4 +36,4 @@ export const CANON_FINISH = 900;
  * against by the browser. Changing the handling constants changes this number,
  * and that invalidates every previously stored run.
  */
-export const CANON_HASH = 484092878;
+export const CANON_HASH = 971289058;

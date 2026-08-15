@@ -14,7 +14,6 @@ import { TRAFFIC_RADIUS, advanceTraffic, spawnTraffic, type Traffic } from './tr
 import {
   CARRY_LIMIT,
   PIN_RADIUS,
-  PUZZLE,
   allOrders,
   countBits,
   type Pin,
@@ -81,7 +80,7 @@ export type State = {
   hitCooldown: number;
 };
 
-export function initialState(p: Puzzle = PUZZLE): State {
+export function initialState(p: Puzzle): State {
   return {
     tick: 0,
     held: 0,
@@ -104,7 +103,7 @@ export function carrying(s: State): number {
 }
 
 /** Advance exactly one tick. Mutates in place: this runs 36000 times a replay. */
-export function step(s: State, p: Puzzle = PUZZLE): void {
+export function step(s: State, p: Puzzle): void {
   const fx = sin(s.heading);
   const fz = cos(s.heading);
   const rx = fz;
@@ -239,7 +238,7 @@ function resolveHits(s: State): void {
 export function replay(
   events: readonly InputEvent[],
   untilTick: number,
-  p: Puzzle = PUZZLE,
+  p: Puzzle,
 ): State {
   if (!Number.isInteger(untilTick) || untilTick < 0 || untilTick > MAX_TICKS) {
     throw new Error(`bad finish tick: ${untilTick}`);

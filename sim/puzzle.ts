@@ -6,7 +6,7 @@
 // rejects anything outside the target time band. The shape below is what that
 // generator has to produce.
 
-import { BLOCK, STREET, blockCentre } from './city.js';
+import { BLOCK, RING, STREET, blockCentre } from './city.js';
 import { makeRng, seedFrom } from './rng.js';
 
 export type Pin = { x: number; z: number };
@@ -43,12 +43,12 @@ const PUZZLE_RING = 2;
  * block face. Guarantees a pin is always somewhere the car can actually reach,
  * which a random point in the plane would not.
  */
-function pinSlots(): Pin[] {
+function pinSlots(ring: number = PUZZLE_RING): Pin[] {
   const off = BLOCK / 2 + STREET / 2;
   const seen = new Set<string>();
   const out: Pin[] = [];
-  for (let gx = -PUZZLE_RING; gx <= PUZZLE_RING; gx++) {
-    for (let gz = -PUZZLE_RING; gz <= PUZZLE_RING; gz++) {
+  for (let gx = -ring; gx <= ring; gx++) {
+    for (let gz = -ring; gz <= ring; gz++) {
       const cx = blockCentre(gx);
       const cz = blockCentre(gz);
       for (const p of [
@@ -96,7 +96,37 @@ export function makePuzzle(seed: number = seedFrom('doordle-phase2')): Puzzle {
   return { hq, home, restaurants, houses, orders };
 }
 
-export const PUZZLE: Puzzle = makePuzzle();
+/**
+ * The route for a given day, as YYYY-MM-DD. Every player gets this same puzzle;
+ * only `home` differs, and the server swaps that in per account.
+ *
+ * There is deliberately no module-level "current puzzle". The server handles
+ * many dates and many players at once, and a singleton would quietly hand
+ * everyone whichever day happened to be loaded first.
+ */
+export function puzzleFor(date: string): Puzzle {
+  return makePuzzle(seedFrom(`doordle:${date}`));
+}
+
+/**
+ * Every position a player's house can be assigned to, across the whole city
+ * rather than just the day's route.
+ *
+ * ponytail: the pool is derived from code, not stored. Slots are deterministic
+ * and never move (SPEC.md §3 forbids it), so the database only has to remember
+ * which ones are claimed. No seeding step, nothing to keep in sync.
+ */
+export function houseSlots(): Pin[] {
+  return pinSlots(RING);
+}
+
+/** Local calendar date, since the puzzle unlocks at local midnight (§9). */
+export function localDate(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = `${now.getMonth() + 1}`.padStart(2, '0');
+  const d = `${now.getDate()}`.padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 /** Bitmask with one bit per order, all set. */
 export function allOrders(p: Puzzle): number {

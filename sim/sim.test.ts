@@ -18,19 +18,22 @@ import {
 } from './index.js';
 import { CITY, PITCH } from './city.js';
 import { PI } from './mathd.js';
-import { CARRY_LIMIT, PUZZLE, allOrders } from './puzzle.js';
+import { CARRY_LIMIT, allOrders } from './puzzle.js';
+
+/** Tests pin the fixture's day so they do not change meaning at midnight. */
+const PUZZLE = CANON_PUZZLE;
 
 /** The old spawn point, back when the car started at the origin. The origin is
  *  a street intersection with a clear run down +Z, which several driving tests
  *  depend on; HQ is wherever the puzzle put it. */
 function atOrigin(): State {
-  const s = initialState();
+  const s = initialState(PUZZLE);
   s.x = 0;
   s.z = 0;
   s.heading = 0;
   return s;
 }
-import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from './fixture.js';
+import { CANON_FINISH, CANON_HASH, CANON_PUZZLE, CANON_TIMELINE } from './fixture.js';
 
 // Every intent used, edges on odd ticks, overlapping holds.
 const TIMELINE = CANON_TIMELINE;
@@ -38,30 +41,32 @@ const FINISH = CANON_FINISH;
 
 describe('determinism', () => {
   it('is bit-identical across 1000 replays', () => {
-    const want = hashState(replay(TIMELINE, FINISH));
+    const want = hashState(replay(TIMELINE, FINISH, PUZZLE));
     for (let i = 0; i < 1000; i++) {
-      expect(hashState(replay(TIMELINE, FINISH))).toBe(want);
+      expect(hashState(replay(TIMELINE, FINISH, PUZZLE))).toBe(want);
     }
   });
 
   it('actually simulated something', () => {
     // Guards the test above from passing on a sim that never moves, or a hash
     // that ignores the state it is handed.
-    const s = replay(TIMELINE, FINISH);
+    const s = replay(TIMELINE, FINISH, PUZZLE);
     expect(s.tick).toBe(FINISH);
     expect(Math.abs(s.x) + Math.abs(s.z)).toBeGreaterThan(1);
-    expect(hashState(s)).not.toBe(hashState(initialState()));
+    expect(hashState(s)).not.toBe(hashState(initialState(PUZZLE)));
   });
 
   it('matches the pinned hash the browser also checks against', () => {
     // If this changes, physics changed. That is fine, but every stored run and
     // every leaderboard time computed under the old constants is now invalid.
-    expect(hashState(replay(TIMELINE, FINISH))).toBe(CANON_HASH);
+    expect(hashState(replay(TIMELINE, FINISH, PUZZLE))).toBe(CANON_HASH);
   });
 
   it('diverges on a one-tick input change', () => {
     const nudged = TIMELINE.map((e, i) => (i === 1 ? { ...e, tick: 38 } : e));
-    expect(hashState(replay(nudged, FINISH))).not.toBe(hashState(replay(TIMELINE, FINISH)));
+    expect(hashState(replay(nudged, FINISH, PUZZLE))).not.toBe(
+      hashState(replay(TIMELINE, FINISH, PUZZLE)),
+    );
   });
 
   it('turns toward the side that was pressed', () => {
@@ -73,9 +78,9 @@ describe('determinism', () => {
     const drive = (turn: number) => {
       const s = atOrigin();
       s.held = BIT.accel;
-      for (let i = 0; i < 60; i++) step(s); // get up to speed, dead straight
+      for (let i = 0; i < 60; i++) step(s, PUZZLE); // get up to speed, dead straight
       s.held = BIT.accel | turn;
-      for (let i = 0; i < 12; i++) step(s);
+      for (let i = 0; i < 12; i++) step(s, PUZZLE);
       return s;
     };
 
@@ -92,23 +97,23 @@ describe('determinism', () => {
   it('replaying tick by tick matches replaying in one call', () => {
     const s = atOrigin();
     s.held = BIT.accel;
-    for (let i = 0; i < 120; i++) step(s);
+    for (let i = 0; i < 120; i++) step(s, PUZZLE);
     const one = hashState(s);
 
     const t = atOrigin();
     t.held = BIT.accel;
-    for (let i = 0; i < 60; i++) step(t);
-    for (let i = 0; i < 60; i++) step(t);
+    for (let i = 0; i < 60; i++) step(t, PUZZLE);
+    for (let i = 0; i < 60; i++) step(t, PUZZLE);
     expect(hashState(t)).toBe(one);
   });
 });
 
 describe('orders', () => {
   // Teleport rather than drive: these test the rules, not the driving.
-  const park = (pin: { x: number; z: number }, s = initialState()) => {
+  const park = (pin: { x: number; z: number }, s = initialState(PUZZLE)) => {
     s.x = pin.x;
     s.z = pin.z;
-    step(s);
+    step(s, PUZZLE);
     return s;
   };
 
@@ -134,7 +139,7 @@ describe('orders', () => {
   it('never carries more than the limit', () => {
     // Load up to the limit by hand, then sit on a restaurant that still owes
     // something. Built this way so it holds whatever the generator produced.
-    const s = initialState();
+    const s = initialState(PUZZLE);
     s.picked = (1 << CARRY_LIMIT) - 1;
     expect(carrying(s)).toBe(CARRY_LIMIT);
 
@@ -143,13 +148,13 @@ describe('orders', () => {
 
     const before = s.picked;
     park(PUZZLE.restaurants[PUZZLE.orders[waiting].restaurant], s);
-    for (let i = 0; i < 60; i++) step(s);
+    for (let i = 0; i < 60; i++) step(s, PUZZLE);
     expect(s.picked).toBe(before);
     expect(carrying(s)).toBe(CARRY_LIMIT);
   });
 
   it('finishes only at home, and only with everything delivered', () => {
-    const s = initialState();
+    const s = initialState(PUZZLE);
     park(PUZZLE.home, s);
     expect(s.finishTick).toBe(-1); // nothing delivered yet
 
@@ -166,7 +171,7 @@ describe('orders', () => {
     // Teleports between pins rather than driving, so this proves the ORDER SET
     // is completable, not that a route exists. Phase 6's validator is what has
     // to prove the latter.
-    const s = initialState();
+    const s = initialState(PUZZLE);
     const all = allOrders(PUZZLE);
     for (let guard = 0; guard < 20 && s.delivered !== all; guard++) {
       for (let i = 0; i < PUZZLE.orders.length; i++) {
@@ -185,12 +190,12 @@ describe('orders', () => {
   });
 
   it('stops the clock once, and stays stopped', () => {
-    const s = initialState();
+    const s = initialState(PUZZLE);
     s.picked = allOrders(PUZZLE);
     s.delivered = allOrders(PUZZLE);
     park(PUZZLE.home, s);
     const finish = s.finishTick;
-    for (let i = 0; i < 30; i++) step(s);
+    for (let i = 0; i < 30; i++) step(s, PUZZLE);
     expect(s.finishTick).toBe(finish);
   });
 });
@@ -199,21 +204,21 @@ describe('traffic', () => {
   it('is identical for two players who drove differently', () => {
     // The whole fairness claim in SPEC.md §6. Traffic must not notice the
     // player, so wildly different driving must not change where cars are.
-    const a = initialState();
-    const b = initialState();
+    const a = initialState(PUZZLE);
+    const b = initialState(PUZZLE);
     b.held = BIT.accel | BIT.left;
     for (let i = 0; i < 600; i++) {
-      step(a);
-      step(b);
+      step(a, PUZZLE);
+      step(b, PUZZLE);
     }
     expect(b.traffic.cars).toEqual(a.traffic.cars);
     expect(b.traffic.rng).toBe(a.traffic.rng);
   });
 
   it('stays on the roads', () => {
-    const s = initialState();
+    const s = initialState(PUZZLE);
     for (let i = 0; i < 900; i++) {
-      step(s);
+      step(s, PUZZLE);
       for (const car of s.traffic.cars) {
         const insideBuilding = CITY.some(
           (b) => Math.abs(car.x - b.x) < b.hw && Math.abs(car.z - b.z) < b.hd,
@@ -224,8 +229,8 @@ describe('traffic', () => {
   });
 
   it('keeps cars inside the district', () => {
-    const s = initialState();
-    for (let i = 0; i < 1800; i++) step(s);
+    const s = initialState(PUZZLE);
+    for (let i = 0; i < 1800; i++) step(s, PUZZLE);
     for (const car of s.traffic.cars) {
       expect(Math.abs(car.x)).toBeLessThan(4 * PITCH);
       expect(Math.abs(car.z)).toBeLessThan(4 * PITCH);
@@ -233,7 +238,7 @@ describe('traffic', () => {
   });
 
   it('costs speed on contact without stopping the car', () => {
-    const s = initialState();
+    const s = initialState(PUZZLE);
     const car = s.traffic.cars[0];
     // Park the player on a car at speed and see what survives the hit.
     s.x = car.x;
@@ -242,7 +247,7 @@ describe('traffic', () => {
     // and the only thing that can take speed off is the hit.
     s.vz = 30;
     const before = Math.hypot(s.vx, s.vz);
-    step(s);
+    step(s, PUZZLE);
     const after = Math.hypot(s.vx, s.vz);
     expect(after).toBeLessThan(before * 0.5);
     expect(after).toBeGreaterThan(0);
@@ -250,15 +255,15 @@ describe('traffic', () => {
   });
 
   it('does not re-hit every tick while overlapping', () => {
-    const s = initialState();
+    const s = initialState(PUZZLE);
     s.x = s.traffic.cars[0].x;
     s.z = s.traffic.cars[0].z;
     s.vz = 30;
-    step(s);
+    step(s, PUZZLE);
     const afterFirst = Math.hypot(s.vx, s.vz);
     s.x = s.traffic.cars[0].x;
     s.z = s.traffic.cars[0].z;
-    step(s);
+    step(s, PUZZLE);
     // Second tick still overlapping: the cooldown must protect the speed.
     expect(Math.hypot(s.vx, s.vz)).toBeGreaterThan(afterFirst * 0.9);
   });
@@ -318,13 +323,13 @@ describe('collision', () => {
       [0, b.hd + 4, PI],
       [-(b.hw + 4), 0, PI / 2],
     ]) {
-      const s = initialState();
+      const s = initialState(PUZZLE);
       s.x = b.x + dx;
       s.z = b.z + dz;
       s.heading = heading;
       s.held = BIT.accel;
       for (let i = 0; i < 240; i++) {
-        step(s);
+        step(s, PUZZLE);
         expect(inside(s.x, s.z)).toBe(false);
       }
     }
@@ -335,13 +340,13 @@ describe('collision', () => {
     // It survives slowly, because a car still pointed at the wall is skidding
     // sideways and grip scrubs that off. Travel is the claim here, not speed.
     const b = CITY[0];
-    const s = initialState();
+    const s = initialState(PUZZLE);
     s.x = b.x;
     s.z = b.z - (b.hd + 4);
     s.heading = 0.5; // angled into the face, not square on
     s.held = BIT.accel;
     const startX = s.x;
-    for (let i = 0; i < 180; i++) step(s);
+    for (let i = 0; i < 180; i++) step(s, PUZZLE);
     expect(s.x - startX).toBeGreaterThan(5);
     expect(s.vz).toBe(0);
   });
@@ -350,7 +355,7 @@ describe('collision', () => {
     // The origin is a street intersection and +Z from there is clear the way out.
     const s = atOrigin();
     s.held = BIT.accel;
-    for (let i = 0; i < 600; i++) step(s);
+    for (let i = 0; i < 600; i++) step(s, PUZZLE);
     expect(s.x).toBe(0);
     expect(s.z).toBeGreaterThan(100);
   });
@@ -365,9 +370,9 @@ describe('replay rejects hostile timelines', () => {
     ['unknown action', [{ tick: 1, action: 'nitro' as never, down: true }], 100],
   ];
   for (const [name, events, finish] of bad) {
-    it(name, () => expect(() => replay(events, finish)).toThrow());
+    it(name, () => expect(() => replay(events, finish, PUZZLE)).toThrow());
   }
-  it('absurd finish tick', () => expect(() => replay([], 999999)).toThrow());
+  it('absurd finish tick', () => expect(() => replay([], 999999, PUZZLE)).toThrow());
 });
 
 describe('mathd', () => {

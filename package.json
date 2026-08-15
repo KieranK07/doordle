@@ -8,11 +8,13 @@
     "test": "tsc --noEmit && vitest run"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260815.1",
     "@types/node": "^26.2.0",
     "@types/three": "^0.185.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.123.0"
   },
   "dependencies": {
     "three": "^0.185.1"

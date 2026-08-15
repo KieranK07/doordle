@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "doordle",
+  "main": "server/worker.ts",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  // Declaring the custom domain here provisions the DNS too. workers.dev stays
+  // off: this game has exactly one address.
+  "routes": [{ "pattern": "doordle.chadnerd.lol", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "doordle",
+      // Filled in by `wrangler d1 create doordle`. Deploys fail until then.
+      "database_id": "REPLACE_ME"
+    }
+  ],
+  "observability": { "enabled": true }
+  // Secrets, never committed: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+  // SESSION_SECRET. Set with `wrangler secret put <NAME>`. Sign-in returns 503
+  // until all three exist, and everything else works without them.
+}

@@ -7,10 +7,15 @@
 import * as THREE from 'three';
 import { BIT, DT, TICK_HZ, carrying, hashState, initialState, replay, step, type InputEvent, type Intent, type State } from '../sim/index.js';
 import { BLOCK, CITY, RING, blockCentre } from '../sim/city.js';
-import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from '../sim/fixture.js';
-import { CARRY_LIMIT, PIN_RADIUS, PUZZLE } from '../sim/puzzle.js';
+import { CANON_FINISH, CANON_HASH, CANON_PUZZLE, CANON_TIMELINE } from '../sim/fixture.js';
+import { CARRY_LIMIT, PIN_RADIUS, localDate, puzzleFor } from '../sim/puzzle.js';
 import { TRAFFIC_COUNT } from '../sim/traffic.js';
 import { solve } from '../sim/solver.js';
+
+// Today's route, by the player's own calendar: the puzzle unlocks at local
+// midnight (§9). The server derives the same one from the date submitted.
+const DATE = localDate();
+const PUZZLE = puzzleFor(DATE);
 
 // Perfect play for today's route. Computed once at load, ~16ms.
 const PAR = solve(PUZZLE);
@@ -249,7 +254,7 @@ const trafficMeshes = Array.from({ length: TRAFFIC_COUNT }, () => {
 
 // ------------------------------------------------------------------ the loop
 
-let sim = initialState();
+let sim = initialState(PUZZLE);
 let prev: State = { ...sim };
 let accumulator = 0;
 let lastFrame = performance.now();
@@ -281,7 +286,7 @@ function frame(now: number): void {
     // Edges land on the tick that consumes them, and are recorded with that
     // same tick, so the timeline replays to exactly what was played.
     drainPending();
-    step(sim);
+    step(sim, PUZZLE);
     accumulator -= DT;
   }
 
@@ -318,6 +323,28 @@ function frame(now: number): void {
   drawMap();
 
   renderer.render(scene, camera);
+}
+
+// The client never sends a time. It sends what was pressed and when, and the
+// server replays it to decide the time (SPEC.md §10).
+let submitted = false;
+function submitRun(): void {
+  if (submitted || sim.finishTick < 0) return;
+  submitted = true;
+  fetch('/api/run', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ date: DATE, inputEvents: timeline, claimedFinishTick: sim.finishTick }),
+  })
+    .then(async (res) => ({ status: res.status, body: await res.json() as { error?: string } }))
+    .then(({ status, body }) => {
+      checkEl.textContent = status === 200 ? 'run recorded' : `not recorded: ${body.error ?? status}`;
+      checkEl.style.color = status === 200 ? '#6ee7a8' : '#e0a458';
+    })
+    .catch(() => {
+      checkEl.textContent = 'not recorded: no server';
+      checkEl.style.color = '#e0a458';
+    });
 }
 
 function clock(ticks: number): string {
@@ -364,6 +391,7 @@ function drawStatus(): void {
 
   timerEl.textContent = clock(sim.finishTick >= 0 ? sim.finishTick : sim.tick);
   if (sim.finishTick >= 0) {
+    submitRun();
     const delta = (sim.finishTick - PAR.ticks) / TICK_HZ;
     const off = delta <= 0 ? `${(-delta).toFixed(1)}s UNDER par` : `${delta.toFixed(1)}s off par`;
     stateEl.textContent = `finished · ${off}`;
@@ -504,9 +532,9 @@ requestAnimationFrame(frame);
 // Run this in Firefox too. Chrome shares V8 with Node, so it cannot fail the
 // first claim for the reason we actually care about.
 function runCheck(): void {
-  const canon = hashState(replay(CANON_TIMELINE, CANON_FINISH));
+  const canon = hashState(replay(CANON_TIMELINE, CANON_FINISH, CANON_PUZZLE));
   const live = hashState(sim);
-  const replayed = hashState(replay(timeline, sim.tick));
+  const replayed = hashState(replay(timeline, sim.tick, PUZZLE));
   const ok = canon === CANON_HASH && live === replayed;
   checkEl.textContent = ok
     ? `determinism ok · ${timeline.length} events · tick ${sim.tick}`

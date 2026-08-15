@@ -11,7 +11,7 @@
 
 import { CITY } from './city.js';
 import { CAR_RADIUS, TICK_HZ } from './index.js';
-import { CARRY_LIMIT, PUZZLE, allOrders, countBits, type Pin, type Puzzle } from './puzzle.js';
+import { CARRY_LIMIT, allOrders, countBits, type Pin, type Puzzle } from './puzzle.js';
 
 /**
  * Metres per second a perfect driver averages, including everything the
@@ -117,7 +117,7 @@ export type ParResult = {
  * there are only a few hundred thousand reachable (picked, delivered, position)
  * states, so there is no reason to approximate.
  */
-export function solve(p: Puzzle = PUZZLE): ParResult {
+export function solve(p: Puzzle): ParResult {
   const all = allOrders(p);
   const nR = p.restaurants.length;
   const nH = p.houses.length;
