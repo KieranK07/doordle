@@ -121,24 +121,43 @@ const postGeo = new THREE.CylinderGeometry(1.1, 0.45, 9, 12);
 const ringGeo = new THREE.CircleGeometry(PIN_RADIUS, 22);
 const COLORS = { restaurant: 0xf59f2b, house: 0x3d7ff2, home: 0x2fd07a, hq: 0x8a94a6 };
 
-function pinMesh(pin: { x: number; z: number }, color: number, post = true): THREE.Group {
-  const g = new THREE.Group();
+type Pin3D = { group: THREE.Group; ring: THREE.Mesh; post: THREE.Mesh | null };
+
+function pinMesh(pin: { x: number; z: number }, color: number, withPost = true): Pin3D {
+  const group = new THREE.Group();
   const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35 }));
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.08;
-  g.add(ring);
-  if (post) {
-    const p = new THREE.Mesh(postGeo, new THREE.MeshLambertMaterial({ color }));
-    p.position.y = 4.5;
-    g.add(p);
+  group.add(ring);
+
+  let post: THREE.Mesh | null = null;
+  if (withPost) {
+    post = new THREE.Mesh(postGeo, new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 1 }));
+    post.position.y = 4.5;
+    group.add(post);
   }
-  g.position.set(pin.x, 0, pin.z);
-  scene.add(g);
-  return g;
+  group.position.set(pin.x, 0, pin.z);
+  scene.add(group);
+  return { group, ring, post };
 }
 
-const restaurantPins: THREE.Group[] = PUZZLE.restaurants.map((p) => pinMesh(p, COLORS.restaurant));
-const housePins: THREE.Group[] = PUZZLE.houses.map((p) => pinMesh(p, COLORS.house));
+/**
+ * A pin you are not acting on yet still has to be visible, because SPEC.md §2
+ * hands the player the whole order list up front and expects them to plan with
+ * it. Dimming carries "not yet" without hiding the information.
+ */
+function setPinState(p: Pin3D, visible: boolean, active: boolean): void {
+  p.group.visible = visible;
+  const dim = active ? 1 : 0.32;
+  (p.ring.material as THREE.MeshBasicMaterial).opacity = active ? 0.35 : 0.14;
+  if (p.post) {
+    (p.post.material as THREE.MeshLambertMaterial).opacity = dim;
+    p.post.scale.setScalar(active ? 1 : 0.7);
+  }
+}
+
+const restaurantPins = PUZZLE.restaurants.map((p) => pinMesh(p, COLORS.restaurant));
+const housePins = PUZZLE.houses.map((p) => pinMesh(p, COLORS.house));
 const homePin = pinMesh(PUZZLE.home, COLORS.home);
 // HQ is departure-only, so it gets a floor marker and nothing to drive into.
 pinMesh(PUZZLE.hq, COLORS.hq, false);
@@ -240,18 +259,21 @@ function drawStatus(): void {
   const all = PUZZLE.orders.length;
   const done = countSetBits(sim.delivered);
 
-  // A restaurant is worth stopping at only while it still owes you something.
+  // A restaurant stays visible while it owes you anything, and goes bright once
+  // there is room aboard to actually collect from it.
+  const room = carrying(sim) < CARRY_LIMIT;
   for (let i = 0; i < restaurantPins.length; i++) {
-    restaurantPins[i].visible = PUZZLE.orders.some(
-      (o, k) => o.restaurant === i && !(sim.picked & (1 << k)),
-    );
+    const owes = PUZZLE.orders.some((o, k) => o.restaurant === i && !(sim.picked & (1 << k)));
+    setPinState(restaurantPins[i], owes, owes && room);
   }
-  // A house matters once its order is aboard, and stops mattering once dropped.
+  // Every undelivered house shows. Bright once its order is aboard, dim before
+  // that, because knowing where it is up front is the whole planning problem.
   for (let i = 0; i < housePins.length; i++) {
     const bit = 1 << i;
-    housePins[i].visible = Boolean(sim.picked & bit) && !(sim.delivered & bit);
+    setPinState(housePins[i], !(sim.delivered & bit), Boolean(sim.picked & bit));
   }
-  homePin.visible = done === all;
+  // Your own house is visible from the start of the run, per SPEC.md §8.
+  setPinState(homePin, true, done === all);
 
   timerEl.textContent = clock(sim.finishTick >= 0 ? sim.finishTick : sim.tick);
   if (sim.finishTick >= 0) {
@@ -350,7 +372,7 @@ function drawMap(): void {
   mapCtx.restore();
 
   for (let i = 0; i < PUZZLE.restaurants.length; i++) {
-    if (restaurantPins[i].visible) dot(PUZZLE.restaurants[i].x, PUZZLE.restaurants[i].z, '#f59f2b', 9);
+    if (restaurantPins[i].group.visible) dot(PUZZLE.restaurants[i].x, PUZZLE.restaurants[i].z, '#f59f2b', 9);
   }
   for (let i = 0; i < PUZZLE.houses.length; i++) {
     const bit = 1 << i;
