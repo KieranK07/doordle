@@ -226,7 +226,11 @@ Settled before Phase 0. The first three are expensive to reverse; change them on
 
 **The car moves freely, it is not locked to the road graph.** Cutting a corner or clipping an alley is allowed and is exactly the kind of knowledge §3's retention model depends on. The road graph still exists, but only the optimal-route solver and the daily generator read it. The sim never does.
 
-**Camera: fixed rotation, car-relative steering.** The camera follows the car's position and never rotates, so north is always up and the map looks identical every single day. Steering turns the car, not the world. A chase cam was considered and rejected: route memory is the whole retention mechanic, and it is much harder to build when the map swings around on every turn.
+**Camera: chase cam, locked at a fixed angle relative to the car.** The car stays pointed up the screen and the world rotates underneath it. Steering is car-relative: left and right turn the car.
+
+This reverses the original call, which was a non-rotating north-up camera. That was chosen on paper to protect route memory, since a map that looks the same every day is easier to learn, and reversed after actually driving it. Drive feel won. The route-memory concern is real but unproven, so watch for it: if players struggle to build map knowledge over weeks, this is the first thing to revisit.
+
+Camera yaw follows the car's heading with a lag rather than snapping to it. With ~178°/s of steering authority a rigid chase cam throws the entire city across the screen on every turn. The lag constant is a tuning knob in the renderer.
 
 **Sim math: float64, with `Math.*` banned inside `sim/`.** `+ - * /` and `sqrt` are bit-identical across every JS engine by spec, so plain doubles are safe. The transcendentals are not — `sin`, `cos`, `atan2`, `pow` are implementation-defined and genuinely differ between V8 and SpiderMonkey. The sim gets its own `sin`/`cos` in `sim/mathd.ts` and a test blocking `Math.*` in `sim/` apart from `abs`, `min`, `max`, `floor`, `sqrt`, `imul`, all of which the language spec defines exactly.
 

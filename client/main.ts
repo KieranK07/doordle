@@ -54,9 +54,15 @@ renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 1, 400);
-// Fixed angle, fixed rotation. It only ever translates with the car, so north
-// stays up and the map looks the same on every run. See SPEC.md §16.
-const CAM_OFFSET = new THREE.Vector3(0, 62, 46);
+// Chase cam: locked angle relative to the CAR, so the world rotates under it.
+// See SPEC.md §16.
+const CAM_DIST = 46;
+const CAM_HEIGHT = 62;
+// Yaw follows the car with a lag instead of snapping. At 178deg/s of steering
+// authority a rigid chase cam whips the whole city across the screen; the lag
+// is what keeps it readable. Higher = tighter, lower = floatier.
+const CAM_LAG = 5;
+let camYaw = 0;
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -163,7 +169,8 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 
   // Clamped so a background tab does not come back and simulate a lost minute.
-  accumulator += Math.min(0.25, (now - lastFrame) / 1000);
+  const frameDt = Math.min(0.25, (now - lastFrame) / 1000);
+  accumulator += frameDt;
   lastFrame = now;
 
   while (accumulator >= DT) {
@@ -185,10 +192,19 @@ function frame(now: number): void {
   const a = accumulator / DT;
   const x = prev.x + (sim.x - prev.x) * a;
   const z = prev.z + (sim.z - prev.z) * a;
+  const heading = prev.heading + (sim.heading - prev.heading) * a;
   car.position.set(x, 0, z);
-  car.rotation.y = prev.heading + (sim.heading - prev.heading) * a;
+  car.rotation.y = heading;
 
-  camera.position.set(x + CAM_OFFSET.x, CAM_OFFSET.y, z + CAM_OFFSET.z);
+  // Heading is unbounded and continuous in the sim, never wrapped, so chasing
+  // it needs no shortest-arc handling. Exponential decay keeps the lag the same
+  // at any framerate.
+  camYaw += (heading - camYaw) * (1 - Math.exp(-CAM_LAG * frameDt));
+  camera.position.set(
+    x - Math.sin(camYaw) * CAM_DIST,
+    CAM_HEIGHT,
+    z - Math.cos(camYaw) * CAM_DIST,
+  );
   camera.lookAt(x, 0, z);
 
   const speed = Math.hypot(sim.vx, sim.vz) * 3.6;
