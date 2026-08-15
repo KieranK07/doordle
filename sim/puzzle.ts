@@ -1,18 +1,29 @@
 // A day's puzzle: where you start, what you pick up, where it goes, and where
-// you finish. Deterministic from a seed, same for every player on a given day
-// except `home`, which is the player's own house.
+// you finish. Deterministic from the date alone, same for every player on a
+// given day except `home`, which is the player's own house.
 //
-// Phase 6 replaces makePuzzle() with the real generator plus a validator that
-// rejects anything outside the target time band. The shape below is what that
-// generator has to produce.
+// Nothing here is stored. The puzzle for any date, past or future, is a pure
+// function of that date, which is what lets the queue be validated 30 days out
+// (SPEC.md §12) with no rows to keep in sync and nothing to generate same-day.
 
-import { BLOCK, RING, STREET, blockCentre } from './city.js';
-import { makeRng, seedFrom } from './rng.js';
+import { RING, streetSlots, type Pin } from './city.js';
+import { DISTRICTS, hqOf, slotsIn, type District } from './district.js';
+import { makeRng } from './rng.js';
 
-export type Pin = { x: number; z: number };
+export type { Pin };
 
 /** You must reach the restaurant before the house. */
 export type Order = { restaurant: number; house: number };
+
+/**
+ * Cosmetic only, and never read by the sim or the scorer. This is the slot the
+ * optional LLM pass overwrites (SPEC.md §12 step 3); the deterministic strings
+ * below are the fallback that ships when that pass is skipped or fails.
+ */
+export type Flavor = {
+  restaurants: string[];
+  orders: { customer: string; item: string }[];
+};
 
 export type Puzzle = {
   hq: Pin;
@@ -21,55 +32,92 @@ export type Puzzle = {
   restaurants: Pin[];
   houses: Pin[];
   orders: Order[];
+  district: District;
+  flavor: Flavor;
 };
 
 /** The precision-vs-frustration dial, SPEC.md §14. */
 export const PIN_RADIUS = 3.5;
 export const CARRY_LIMIT = 3;
 
-const ORDER_COUNT = 7;
-const RESTAURANT_COUNT = 4;
+export const ORDER_COUNT = 7;
+export const RESTAURANT_COUNT = 4;
 
-/**
- * Pins only appear within this many blocks of the centre. The city is much
- * bigger than one day's route: a puzzle spread over the whole grid takes far
- * longer than the 2-to-4 minute target in SPEC.md §4. This is the crude stand
- * in for "the route stays inside one district", which Phase 7 makes real.
- */
-const PUZZLE_RING = 2;
+// ---------------------------------------------------------------- the calendar
 
-/**
- * Every point where a pin can sit: the middle of the street alongside each
- * block face. Guarantees a pin is always somewhere the car can actually reach,
- * which a random point in the plane would not.
- */
-function pinSlots(ring: number = PUZZLE_RING): Pin[] {
-  const off = BLOCK / 2 + STREET / 2;
-  const seen = new Set<string>();
-  const out: Pin[] = [];
-  for (let gx = -ring; gx <= ring; gx++) {
-    for (let gz = -ring; gz <= ring; gz++) {
-      const cx = blockCentre(gx);
-      const cz = blockCentre(gz);
-      for (const p of [
-        { x: cx, z: cz - off },
-        { x: cx, z: cz + off },
-        { x: cx - off, z: cz },
-        { x: cx + off, z: cz },
-      ]) {
-        const key = `${p.x},${p.z}`; // neighbouring blocks share a street
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(p);
-      }
-    }
-  }
-  return out;
+/** Day 1. Puzzle numbering, the district rotation and share cards all count from here. */
+export const EPOCH = '2026-08-01';
+
+const DAY = 86_400_000;
+const stamp = (date: string) => Date.parse(`${date}T00:00:00Z`);
+
+/** Day number for a date, counting the epoch as 1. */
+export const puzzleNumber = (date: string) => Math.round((stamp(date) - stamp(EPOCH)) / DAY) + 1;
+
+/** Date arithmetic in UTC, so a daylight-saving shift cannot add or eat a day. */
+export function shiftDate(date: string, days: number): string {
+  return new Date(stamp(date) + days * DAY).toISOString().slice(0, 10);
 }
 
-export function makePuzzle(seed: number = seedFrom('doordle-phase2')): Puzzle {
+/** Local calendar date, since the puzzle unlocks at local midnight (§9). */
+export function localDate(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = `${now.getMonth() + 1}`.padStart(2, '0');
+  const d = `${now.getDate()}`.padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// ----------------------------------------------------------------- the flavor
+
+// ponytail: two word lists and a seeded pick. Deterministic, offline, and good
+// enough to give every order a name; the LLM pass in SPEC.md §12 replaces the
+// strings and nothing else, because nothing downstream reads them.
+const EATERIES = [
+  'Golden Wok', 'Marlow Pizza', 'Halcyon Cafe', 'Bento Nine', 'Rosa Taqueria',
+  'The Copper Kettle', 'Nonna Vale', 'Saffron House', 'Blue Anchor Fish Bar',
+  'Pitmaster Row', 'Verde Salads', 'Sunrise Diner', 'Dumpling Lane', 'Kebab Koda',
+];
+const DISHES = [
+  'pad thai', 'a double cheeseburger', 'chicken shawarma', 'two large pepperonis',
+  'pho and spring rolls', 'a katsu curry', 'birria tacos', 'fish and chips',
+  'a burrito bowl', 'six dumplings', 'a lamb gyro', 'shakshuka', 'wings and fries',
+  'a chopped salad',
+];
+const CUSTOMERS = [
+  'Amara', 'Beck', 'Cyrus', 'Dee', 'Elias', 'Fenn', 'Greta', 'Hollis', 'Idris',
+  'Juno', 'Kaz', 'Lira', 'Moss', 'Nadia', 'Otto', 'Priya', 'Quill', 'Rune',
+  'Soren', 'Tova', 'Ulla', 'Vesper', 'Wren', 'Xiu', 'Yusuf', 'Zadie',
+];
+
+const pick = <T>(list: readonly T[], rng: () => number) => list[Math.floor(rng() * list.length)];
+
+function makeFlavor(seed: number, restaurants: number, orders: number): Flavor {
   const rng = makeRng(seed);
-  const pool = pinSlots();
+  // Sampled without replacement so no two restaurants share a name on the same
+  // day; two customers sharing a first name is fine and reads as a real city.
+  const pool = [...EATERIES];
+  return {
+    restaurants: Array.from({ length: restaurants }, () =>
+      pool.splice(Math.floor(rng() * pool.length), 1)[0] ?? 'Unnamed Kitchen',
+    ),
+    orders: Array.from({ length: orders }, () => ({
+      customer: pick(CUSTOMERS, rng),
+      item: pick(DISHES, rng),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------- the generator
+
+/**
+ * Build the puzzle for one district from one seed. Solvable by construction:
+ * pins come from real street positions and every order is one restaurant to one
+ * house, so any order set can be completed one at a time regardless of the
+ * carry limit. The validator is what decides whether it is a *good* puzzle.
+ */
+export function makePuzzle(seed: number, district: District = DISTRICTS[0]): Puzzle {
+  const rng = makeRng(seed);
+  const pool = slotsIn(district);
 
   // Fisher-Yates, so every slot is equally likely and nothing repeats.
   for (let i = pool.length - 1; i > 0; i--) {
@@ -79,34 +127,35 @@ export function makePuzzle(seed: number = seedFrom('doordle-phase2')): Puzzle {
     pool[j] = t;
   }
 
-  let n = 0;
-  const hq = pool[n++];
-  const home = pool[n++];
-  const restaurants = pool.slice(n, (n += RESTAURANT_COUNT));
-  const houses = pool.slice(n, (n += ORDER_COUNT));
+  // HQ is the district's own and is not drawn from the day's pool, so it is
+  // fixed forever. Anything the day places on top of it is moved aside.
+  const hq = hqOf(district);
+  const free = pool.filter((p) => p.x !== hq.x || p.z !== hq.z);
 
-  // ponytail: every house gets one order from a random restaurant. Solvable by
-  // construction and ignores the carry limit entirely, because any order set is
-  // completable one at a time. Phase 6 is where difficulty gets designed.
+  let n = 0;
+  const home = free[n++];
+  const restaurants = free.slice(n, (n += RESTAURANT_COUNT));
+  const houses = free.slice(n, (n += ORDER_COUNT));
+
   const orders: Order[] = houses.map((_, house) => ({
     restaurant: Math.floor(rng() * RESTAURANT_COUNT),
     house,
   }));
 
-  return { hq, home, restaurants, houses, orders };
+  return {
+    hq,
+    home,
+    restaurants,
+    houses,
+    orders,
+    district,
+    flavor: makeFlavor(seed ^ 0x5f5e1, RESTAURANT_COUNT, ORDER_COUNT),
+  };
 }
 
-/**
- * The route for a given day, as YYYY-MM-DD. Every player gets this same puzzle;
- * only `home` differs, and the server swaps that in per account.
- *
- * There is deliberately no module-level "current puzzle". The server handles
- * many dates and many players at once, and a singleton would quietly hand
- * everyone whichever day happened to be loaded first.
- */
-export function puzzleFor(date: string): Puzzle {
-  return makePuzzle(seedFrom(`doordle:${date}`));
-}
+// The date-to-puzzle step lives in sim/daily.ts, not here: picking the day's
+// draw means validating it, validating it means running the solver, and the
+// solver reads this file. One direction only.
 
 /**
  * Every position a player's house can be assigned to, across the whole city
@@ -117,15 +166,7 @@ export function puzzleFor(date: string): Puzzle {
  * which ones are claimed. No seeding step, nothing to keep in sync.
  */
 export function houseSlots(): Pin[] {
-  return pinSlots(RING);
-}
-
-/** Local calendar date, since the puzzle unlocks at local midnight (§9). */
-export function localDate(now: Date = new Date()): string {
-  const y = now.getFullYear();
-  const m = `${now.getMonth() + 1}`.padStart(2, '0');
-  const d = `${now.getDate()}`.padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return streetSlots(0, 0, RING);
 }
 
 /** Bitmask with one bit per order, all set. */

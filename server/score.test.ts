@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BIT, initialState, step, type InputEvent } from '../sim/index.js';
-import { allOrders, puzzleFor } from '../sim/puzzle.js';
+import { DISTRICTS } from '../sim/district.js';
+import { puzzleFor } from '../sim/daily.js';
+import { allOrders, type Puzzle } from '../sim/puzzle.js';
 import { dateInWindow, scoreAgainst, scoreRun } from './score.js';
 
 const DATE = '2026-03-04';
@@ -113,12 +115,14 @@ describe('scoring a submission', () => {
     // Without this the whole suite would pass on a scoreRun that always
     // rejected. A puzzle with no orders and home straight up the street from
     // HQ, so holding the throttle is a complete, honest run.
-    const straight = {
+    const straight: Puzzle = {
       hq: { x: 0, z: 0 },
       home: { x: 0, z: 60 },
       restaurants: [],
       houses: [],
       orders: [],
+      district: DISTRICTS[0],
+      flavor: { restaurants: [], orders: [] },
     };
     const events: InputEvent[] = [{ tick: 0, action: 'accel', down: true }];
 

@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["sim", "client", "server"]
+  "include": ["sim", "client", "server", "scripts"]
 }

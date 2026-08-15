@@ -3,7 +3,8 @@
 // the client's claimed time is never trusted, only the replay is.
 
 import { MAX_TICKS, hashState, replay, type InputEvent } from '../sim/index.js';
-import { puzzleFor, type Pin, type Puzzle } from '../sim/puzzle.js';
+import { puzzleFor } from '../sim/daily.js';
+import { type Pin, type Puzzle } from '../sim/puzzle.js';
 
 export type Submission = {
   date: string;

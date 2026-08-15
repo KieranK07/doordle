@@ -14,6 +14,7 @@
         background: rgba(12, 15, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 10px; padding: 12px 14px; min-width: 190px;
       }
+      #day { font-size: 12px; opacity: 0.55; letter-spacing: 0.06em; text-transform: uppercase; }
       #timer { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
       #state { margin-top: 2px; font-size: 12px; opacity: 0.8; }
       #speed { margin-top: 10px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; opacity: 0.75; }
@@ -48,6 +49,8 @@
       #board td:last-child { text-align: right; }
       #board tr.me td { color: #6ee7a8; font-weight: 700; }
       #board .empty { opacity: 0.45; font-size: 12px; }
+      #board .manifest { font-size: 12px; opacity: 0.7; }
+      #board .manifest div { padding: 2px 0; }
       #share {
         white-space: pre; background: #0d1015; border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 8px; padding: 10px 12px; margin-top: 6px; font-size: 13px;
@@ -69,6 +72,7 @@
   </head>
   <body>
     <div id="hud">
+      <div id="day"></div>
       <div id="timer">0:00.00</div>
       <div id="state"></div>
       <div id="speed">0<span>km/h</span></div>

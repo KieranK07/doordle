@@ -5,17 +5,11 @@
 // already permanent, already theirs, and already on the map, so it makes a
 // stable public handle with no personal data attached to it.
 
-/** Day 1. Every share card counts from here. */
-export const EPOCH = '2026-08-01';
+// Day numbering and date arithmetic live in sim/puzzle.ts: the same numbers
+// choose the day's district, so there can only be one definition of them.
+import { EPOCH, puzzleNumber, shiftDate } from '../sim/puzzle.js';
 
-const DAY = 86_400_000;
-const stamp = (date: string) => Date.parse(`${date}T00:00:00Z`);
-
-export const puzzleNumber = (date: string) => Math.round((stamp(date) - stamp(EPOCH)) / DAY) + 1;
-
-export function shiftDate(date: string, days: number): string {
-  return new Date(stamp(date) + days * DAY).toISOString().slice(0, 10);
-}
+export { EPOCH, puzzleNumber, shiftDate };
 
 /** Rounded up, floored at 1, so the fastest player reads "Top 1%" not "Top 0%". */
 export const percentileOf = (rank: number, total: number) =>

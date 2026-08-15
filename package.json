@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "deploy": "vite build && wrangler deploy",
+    "queue": "vite-node scripts/queue.ts",
     "test": "tsc --noEmit && vitest run"
   },
   "devDependencies": {

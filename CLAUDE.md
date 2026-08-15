@@ -2,7 +2,7 @@
 
 Daily browser racing/delivery game. `SPEC.md` is the source of truth for design — read it before changing behaviour, and update it when a design decision changes.
 
-Current phase: **Phase 5 (leaderboards and social)**. Phases 0 to 4 are done and deployed. See SPEC.md §13 for the list. Don't build ahead of the current phase.
+Current phase: **Phase 6 (generation pipeline)**. Phases 0 to 5 are done and deployed. See SPEC.md §13 for the list. Don't build ahead of the current phase.
 
 Pause is a client concern only. The sim never learns about it: the loop stops
 calling `step()`, so no ticks pass and the recorded timeline cannot tell a
@@ -21,8 +21,10 @@ paused run from an uninterrupted one.
 
 ```
 sim/index.ts    state, step(), replay(), hashState(), collision — no DOM, no I/O
-sim/city.ts     buildings; the car collides with these, so they live in the sim
-sim/puzzle.ts   HQ, home, restaurants, houses, orders, pin radius, carry limit
+sim/city.ts     buildings and street geometry; the car collides with these
+sim/district.ts district list, growth order, per-district HQ, daily rotation
+sim/puzzle.ts   the generator: HQ, home, restaurants, houses, orders, flavor
+sim/daily.ts    puzzleFor(date), the validator, and the 30-day queue check
 sim/traffic.ts  deterministic traffic; never reads the player, only the tick
 sim/solver.ts   par: optimal route time, used for scoring and by the validator
 sim/mathd.ts    engine-exact trig
@@ -47,6 +49,22 @@ Any change to the handling constants, collision, or the puzzle changes
 `CANON_HASH` in `sim/fixture.ts`. Repin it from the failing test. Free today;
 once runs are stored it invalidates every recorded time, so from Phase 4 on,
 treat a hash change as a migration rather than a tweak.
+
+## The daily puzzle
+
+`puzzleFor(date)` is a pure function of the date: nothing is stored, nothing is
+generated same-day, and the "queue" is a horizon that has been validated rather
+than a table of rows. It redraws until the day passes `validate()`, so a
+trivial or unplayable draw never ships. `npm run queue` prints and checks the
+next 30 days and exits non-zero on a bad one; run it before a release.
+
+The city may only grow at the edges (SPEC.md §3). `CITY_RINGS` in `sim/city.ts`
+is the one dial, and raising it must leave every existing coordinate exactly
+where it was — a player who learned a shortcut in month one still has it in
+month six. `sim/daily.test.ts` asserts that districts append and never move.
+
+`flavor` is cosmetic and nothing downstream may read it. It is the slot the
+optional LLM pass overwrites; the deterministic strings are its fallback.
 
 ## Testing
 

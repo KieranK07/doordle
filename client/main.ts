@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import { BIT, DT, TICK_HZ, carrying, hashState, initialState, replay, step, type InputEvent, type Intent, type State } from '../sim/index.js';
 import { BLOCK, CITY, RING, blockCentre } from '../sim/city.js';
 import { CANON_FINISH, CANON_HASH, CANON_PUZZLE, CANON_TIMELINE } from '../sim/fixture.js';
-import { CARRY_LIMIT, PIN_RADIUS, localDate, puzzleFor } from '../sim/puzzle.js';
+import { puzzleFor } from '../sim/daily.js';
+import { CARRY_LIMIT, PIN_RADIUS, localDate, puzzleNumber } from '../sim/puzzle.js';
 import { TRAFFIC_COUNT } from '../sim/traffic.js';
 import { solve } from '../sim/solver.js';
 
@@ -266,6 +267,11 @@ const checkEl = document.getElementById('check') as HTMLElement;
 const timerEl = document.getElementById('timer') as HTMLElement;
 const stateEl = document.getElementById('state') as HTMLElement;
 const pauseEl = document.getElementById('pause') as HTMLElement;
+const dayEl = document.getElementById('day') as HTMLElement;
+
+// Which district hosts today's route. Rotation is the fairness mechanism
+// (SPEC.md §3), so it is worth naming rather than leaving players to notice.
+dayEl.textContent = `${PUZZLE.district.name} · Doordle #${puzzleNumber(DATE)}`;
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
@@ -393,8 +399,17 @@ function render(b: Board): void {
     `Doordle #${b.number}\n${clock(b.you.finishTick)} - ${off}\nTop ${b.you.percentile}%` +
     (b.you.streak > 1 ? `\n${b.you.streak} day streak` : '');
 
+  // Safe to show only now: the manifest names the route, so it stays behind the
+  // same lock the board does (SPEC.md §9).
+  const manifest = PUZZLE.orders
+    .map((o, i) => {
+      const f = PUZZLE.flavor.orders[i];
+      return `<div>${esc(f.customer)} &mdash; ${esc(f.item)} from ${esc(PUZZLE.flavor.restaurants[o.restaurant])}</div>`;
+    })
+    .join('');
+
   boardBody.innerHTML =
-    `<h1>Doordle #${b.number}</h1>` +
+    `<h1>Doordle #${b.number} &middot; ${esc(PUZZLE.district.name)}</h1>` +
     `<div>${clock(b.you.finishTick)} &middot; ${esc(off)} &middot; ` +
     `rank ${b.you.rank} of ${b.you.total} (top ${b.you.percentile}%) &middot; ` +
     `${b.you.streak} day streak</div>` +
@@ -403,6 +418,7 @@ function render(b: Board): void {
     `<h2>Today</h2>${rows(b.daily, b.you.slot, (r) => clock(r.finishTick))}` +
     `<h2>Last 30 days (average)</h2>` +
     rows(b.monthly, b.you.slot, (r) => `${clock(r.avgTick)} · ${r.days}d`) +
+    `<h2>Today's run</h2><div class="manifest">${manifest}</div>` +
     `<h2>Past winners</h2>` +
     (b.winners.length
       ? `<table>${b.winners

@@ -9,7 +9,7 @@
 // reason collision had to exist first: without walls the shortest path between
 // two pins is a straight line and every number here would be a fantasy.
 
-import { CITY } from './city.js';
+import { CITY, PITCH } from './city.js';
 import { CAR_RADIUS, TICK_HZ } from './index.js';
 import { CARRY_LIMIT, allOrders, countBits, type Pin, type Puzzle } from './puzzle.js';
 
@@ -32,42 +32,78 @@ export const PAR_SPEED = 28;
  * would need 8-connected movement and a real Dijkstra.
  */
 const GRID_STEP = 3.5;
-const GRID_HALF = 260;
-const COLS = Math.floor((GRID_HALF * 2) / GRID_STEP) + 1;
 
-const toCell = (v: number) => Math.round((v + GRID_HALF) / GRID_STEP);
-const toWorld = (c: number) => c * GRID_STEP - GRID_HALF;
+/**
+ * Slack around the day's pins for the flood to route through. A day's route is
+ * confined to one district, so the grid is built around those pins rather than
+ * around the whole city: it stays the same size however far the city grows, and
+ * one block pitch is more than a detour around a building ever needs.
+ */
+const MARGIN = PITCH;
 
-/** Cells the car cannot occupy, buildings fattened by the car's radius. */
-const blocked = (() => {
-  const out = new Uint8Array(COLS * COLS);
-  for (let cx = 0; cx < COLS; cx++) {
-    const wx = toWorld(cx);
-    for (let cz = 0; cz < COLS; cz++) {
-      const wz = toWorld(cz);
-      for (const b of CITY) {
+type Grid = {
+  cols: number;
+  rows: number;
+  minX: number;
+  minZ: number;
+  blocked: Uint8Array;
+};
+
+/** The walkable grid covering a set of pins, buildings fattened by the car. */
+function gridFor(pins: readonly Pin[]): Grid {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const p of pins) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minZ = Math.min(minZ, p.z);
+    maxZ = Math.max(maxZ, p.z);
+  }
+  minX -= MARGIN;
+  minZ -= MARGIN;
+  const cols = Math.floor((maxX + MARGIN - minX) / GRID_STEP) + 1;
+  const rows = Math.floor((maxZ + MARGIN - minZ) / GRID_STEP) + 1;
+
+  // Only the buildings that can reach into the box matter, which is what keeps
+  // this cheap as the city grows past the district being solved.
+  const near = CITY.filter(
+    (b) =>
+      b.x + b.hw + CAR_RADIUS > minX &&
+      b.x - b.hw - CAR_RADIUS < minX + cols * GRID_STEP &&
+      b.z + b.hd + CAR_RADIUS > minZ &&
+      b.z - b.hd - CAR_RADIUS < minZ + rows * GRID_STEP,
+  );
+
+  const blocked = new Uint8Array(cols * rows);
+  for (let cx = 0; cx < cols; cx++) {
+    const wx = minX + cx * GRID_STEP;
+    for (let cz = 0; cz < rows; cz++) {
+      const wz = minZ + cz * GRID_STEP;
+      for (const b of near) {
         if (Math.abs(wx - b.x) < b.hw + CAR_RADIUS && Math.abs(wz - b.z) < b.hd + CAR_RADIUS) {
-          out[cx * COLS + cz] = 1;
+          blocked[cx * rows + cz] = 1;
           break;
         }
       }
     }
   }
-  return out;
-})();
+  return { cols, rows, minX, minZ, blocked };
+}
 
 /** Nearest cell the car could actually sit in, since pins sit mid-street. */
-function nearestFree(p: Pin): number {
-  const cx = toCell(p.x);
-  const cz = toCell(p.z);
+function nearestFree(g: Grid, p: Pin): number {
+  const cx = Math.round((p.x - g.minX) / GRID_STEP);
+  const cz = Math.round((p.z - g.minZ) / GRID_STEP);
   for (let r = 0; r < 8; r++) {
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const x = cx + dx;
         const z = cz + dz;
-        if (x < 0 || z < 0 || x >= COLS || z >= COLS) continue;
-        if (!blocked[x * COLS + z]) return x * COLS + z;
+        if (x < 0 || z < 0 || x >= g.cols || z >= g.rows) continue;
+        if (!g.blocked[x * g.rows + z]) return x * g.rows + z;
       }
     }
   }
@@ -75,17 +111,18 @@ function nearestFree(p: Pin): number {
 }
 
 /** Flood from one cell, returning distance in world units to every cell. */
-function flood(from: number): Float64Array {
-  const dist = new Float64Array(COLS * COLS).fill(Infinity);
-  const queue = new Int32Array(COLS * COLS);
+function flood(g: Grid, from: number): Float64Array {
+  const n = g.cols * g.rows;
+  const dist = new Float64Array(n).fill(Infinity);
+  const queue = new Int32Array(n);
   let head = 0;
   let tail = 0;
   dist[from] = 0;
   queue[tail++] = from;
   while (head < tail) {
     const cur = queue[head++];
-    const cx = (cur / COLS) | 0;
-    const cz = cur % COLS;
+    const cx = (cur / g.rows) | 0;
+    const cz = cur % g.rows;
     const next = dist[cur] + GRID_STEP;
     for (const [dx, dz] of [
       [1, 0],
@@ -95,9 +132,9 @@ function flood(from: number): Float64Array {
     ]) {
       const x = cx + dx;
       const z = cz + dz;
-      if (x < 0 || z < 0 || x >= COLS || z >= COLS) continue;
-      const i = x * COLS + z;
-      if (blocked[i] || dist[i] !== Infinity) continue;
+      if (x < 0 || z < 0 || x >= g.cols || z >= g.rows) continue;
+      const i = x * g.rows + z;
+      if (g.blocked[i] || dist[i] !== Infinity) continue;
       dist[i] = next;
       queue[tail++] = i;
     }
@@ -125,9 +162,10 @@ export function solve(p: Puzzle): ParResult {
   // Node layout: HQ, restaurants, houses, home.
   const nodes: Pin[] = [p.hq, ...p.restaurants, ...p.houses, p.home];
   const HOME = nodes.length - 1;
-  const cells = nodes.map(nearestFree);
+  const grid = gridFor(nodes);
+  const cells = nodes.map((n) => nearestFree(grid, n));
   const between: number[][] = cells.map((c) => {
-    const d = flood(c);
+    const d = flood(grid, c);
     return cells.map((other) => d[other]);
   });
 
