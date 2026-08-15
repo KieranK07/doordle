@@ -232,7 +232,7 @@ This reverses the original call, which was a non-rotating north-up camera. That 
 
 Camera yaw follows the car's heading with a lag rather than snapping to it. With ~178°/s of steering authority a rigid chase cam throws the entire city across the screen on every turn. The lag constant is a tuning knob in the renderer.
 
-**Sim math: float64, with `Math.*` banned inside `sim/`.** `+ - * /` and `sqrt` are bit-identical across every JS engine by spec, so plain doubles are safe. The transcendentals are not — `sin`, `cos`, `atan2`, `pow` are implementation-defined and genuinely differ between V8 and SpiderMonkey. The sim gets its own `sin`/`cos` in `sim/mathd.ts` and a test blocking `Math.*` in `sim/` apart from `abs`, `min`, `max`, `floor`, `sqrt`, `imul`, all of which the language spec defines exactly.
+**Sim math: float64, with `Math.*` banned inside `sim/`.** `+ - * /` and `sqrt` are bit-identical across every JS engine by spec, so plain doubles are safe. The transcendentals are not — `sin`, `cos`, `atan2`, `pow` are implementation-defined and genuinely differ between V8 and SpiderMonkey. The sim gets its own `sin`/`cos` in `sim/mathd.ts` and a test blocking `Math.*` in `sim/` apart from `abs`, `min`, `max`, `floor`, `round`, `sqrt`, `imul`, all of which the language spec defines exactly.
 
 **Tick rate: 60 Hz fixed.** All durations are integer tick counts. Milliseconds never enter the sim or the stored run.
 

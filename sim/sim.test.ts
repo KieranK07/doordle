@@ -3,9 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { cos, sin, wrapAngle } from './mathd.js';
 import { makeRng, seedFrom } from './rng.js';
+import { solve } from './solver.js';
 import {
   BIT,
   CAR_RADIUS,
+  TICK_HZ,
   carrying,
   hashState,
   initialState,
@@ -193,6 +195,46 @@ describe('orders', () => {
   });
 });
 
+describe('par', () => {
+  const par = solve(PUZZLE);
+
+  it('finds a finite route through every order', () => {
+    expect(Number.isFinite(par.distance)).toBe(true);
+    expect(par.ticks).toBeGreaterThan(0);
+  });
+
+  it('is at least as long as going straight to the furthest pin', () => {
+    // Weak, but it catches a solver that quietly skips stops: no route can be
+    // shorter than the straight line to the pin furthest from HQ.
+    const furthest = Math.max(
+      ...[...PUZZLE.restaurants, ...PUZZLE.houses, PUZZLE.home].map((p) =>
+        Math.hypot(p.x - PUZZLE.hq.x, p.z - PUZZLE.hq.z),
+      ),
+    );
+    expect(par.distance).toBeGreaterThan(furthest);
+  });
+
+  it('lands inside the target run length', () => {
+    // SPEC.md §4 wants a good run in the 2-to-4 minute band. Par is a perfect
+    // run, so it should sit at or under the bottom of that band. If this fails,
+    // the puzzle got too big or PAR_SPEED is wrong, and both are tuning knobs.
+    const seconds = par.ticks / TICK_HZ;
+    expect(seconds).toBeGreaterThan(30);
+    expect(seconds).toBeLessThan(240);
+  });
+
+  it('respects the carry limit', () => {
+    // A solver ignoring capacity would find a shorter route than one honouring
+    // it, so par under a limit of 1 must be no better than under a limit of 3.
+    const tight = solve({
+      ...PUZZLE,
+      orders: PUZZLE.orders.slice(0, 3),
+      houses: PUZZLE.houses.slice(0, 3),
+    });
+    expect(tight.distance).toBeLessThanOrEqual(par.distance);
+  });
+});
+
 describe('collision', () => {
   const inside = (x: number, z: number) =>
     CITY.some(
@@ -297,7 +339,9 @@ describe('rng', () => {
 // ponytail: a test instead of an eslint plugin. Same guarantee, no config, no
 // dependency, and it fails in the same command everything else fails in.
 it('sim/ uses no engine-dependent Math', () => {
-  const allowed = new Set(['abs', 'min', 'max', 'floor', 'imul', 'sqrt']);
+  // Every one of these is exactly specified by the language, so engines cannot
+  // disagree. The transcendentals are the ones that can, and they are absent.
+  const allowed = new Set(['abs', 'min', 'max', 'floor', 'round', 'imul', 'sqrt']);
   const dir = fileURLToPath(new URL('.', import.meta.url));
   const offenders: string[] = [];
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))) {

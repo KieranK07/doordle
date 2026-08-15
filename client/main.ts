@@ -9,6 +9,10 @@ import { BIT, DT, TICK_HZ, carrying, hashState, initialState, replay, step, type
 import { BLOCK, CITY, RING, blockCentre } from '../sim/city.js';
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from '../sim/fixture.js';
 import { CARRY_LIMIT, PIN_RADIUS, PUZZLE } from '../sim/puzzle.js';
+import { solve } from '../sim/solver.js';
+
+// Perfect play for today's route. Computed once at load, ~16ms.
+const PAR = solve(PUZZLE);
 
 // ---------------------------------------------------------------- input layer
 
@@ -251,10 +255,13 @@ function drawStatus(): void {
 
   timerEl.textContent = clock(sim.finishTick >= 0 ? sim.finishTick : sim.tick);
   if (sim.finishTick >= 0) {
-    stateEl.textContent = `delivered ${all}/${all} · FINISHED`;
-    stateEl.style.color = '#6ee7a8';
+    const delta = (sim.finishTick - PAR.ticks) / TICK_HZ;
+    const off = delta <= 0 ? `${(-delta).toFixed(1)}s UNDER par` : `${delta.toFixed(1)}s off par`;
+    stateEl.textContent = `finished · ${off}`;
+    stateEl.style.color = delta <= 0 ? '#6ee7a8' : '#e7ecf3';
   } else {
-    stateEl.textContent = `delivered ${done}/${all} · carrying ${carrying(sim)}/${CARRY_LIMIT}`;
+    stateEl.textContent =
+      `delivered ${done}/${all} · carrying ${carrying(sim)}/${CARRY_LIMIT} · par ${clock(PAR.ticks)}`;
     stateEl.style.color = '';
   }
 }
