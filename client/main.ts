@@ -6,8 +6,8 @@
 
 import * as THREE from 'three';
 import { BIT, DT, hashState, initialState, replay, step, type InputEvent, type Intent, type State } from '../sim/index.js';
+import { BLOCK, CITY, RING, blockCentre } from '../sim/city.js';
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from '../sim/fixture.js';
-import { makeRng, seedFrom } from '../sim/rng.js';
 
 // ---------------------------------------------------------------- input layer
 
@@ -80,52 +80,29 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-// Hardcoded grid city. Phase 2 replaces this with real district data; for now
-// it exists only so speed and scale read at a glance.
-const BLOCK = 46;
-const STREET = 17;
-const PITCH = BLOCK + STREET;
-const RING = 6;
-
+// Drawn from the same building list the sim collides against, so what you see
+// is exactly what you hit.
 const box = new THREE.BoxGeometry(1, 1, 1);
 const palette = [0xb9c3cf, 0xa4b0be, 0xcfd6dd, 0x93a1ae, 0xdfe4e9].map(
   (color) => new THREE.MeshLambertMaterial({ color }),
 );
 const lawn = new THREE.MeshLambertMaterial({ color: 0x51606a });
 
-const rng = makeRng(seedFrom('doordle-phase1-city'));
 const city = new THREE.Group();
 for (let gx = -RING; gx <= RING; gx++) {
   for (let gz = -RING; gz <= RING; gz++) {
-    // Blocks are offset half a pitch so the origin, where the car spawns, is a
-    // street intersection rather than the middle of a block.
-    const cx = (gx + 0.5) * PITCH;
-    const cz = (gz + 0.5) * PITCH;
-
     const pad = new THREE.Mesh(box, lawn);
     pad.scale.set(BLOCK, 0.4, BLOCK);
-    pad.position.set(cx, 0.2, cz);
+    pad.position.set(blockCentre(gx), 0.2, blockCentre(gz));
     city.add(pad);
-
-    const cols = 2 + Math.floor(rng() * 2);
-    const cell = BLOCK / cols;
-    for (let i = 0; i < cols; i++) {
-      for (let j = 0; j < cols; j++) {
-        if (rng() < 0.18) continue; // gaps read as alleys
-        const h = 6 + rng() * 30;
-        const w = cell * (0.62 + rng() * 0.22);
-        const d = cell * (0.62 + rng() * 0.22);
-        const b = new THREE.Mesh(box, palette[Math.floor(rng() * palette.length)]);
-        b.scale.set(w, h, d);
-        b.position.set(
-          cx - BLOCK / 2 + cell * (i + 0.5),
-          h / 2,
-          cz - BLOCK / 2 + cell * (j + 0.5),
-        );
-        city.add(b);
-      }
-    }
   }
+}
+let paint = 0;
+for (const b of CITY) {
+  const mesh = new THREE.Mesh(box, palette[paint++ % palette.length]);
+  mesh.scale.set(b.hw * 2, b.h, b.hd * 2);
+  mesh.position.set(b.x, b.h / 2, b.z);
+  city.add(mesh);
 }
 scene.add(city);
 

@@ -1,4 +1,4 @@
-// One canned run, shared by the Node test and the browser self-check. A single
+﻿// One canned run, shared by the Node test and the browser self-check. A single
 // fixture in one place is what makes the claim checkable at all: if a browser
 // prints this same hash, that browser's engine agrees with Node, which is the
 // premise server-side replay rests on.
@@ -27,4 +27,4 @@ export const CANON_FINISH = 900;
  * against by the browser. Changing the handling constants changes this number,
  * and that invalidates every previously stored run.
  */
-export const CANON_HASH = 721309172;
+export const CANON_HASH = 3802960774;

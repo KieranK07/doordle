@@ -7,6 +7,7 @@
 //   - no Math.* beyond the engine-exact ones (see mathd.ts)
 //   - 2D only. The renderer is 3D, the sim is not.
 
+import { CITY } from './city.js';
 import { cos, sin } from './mathd.js';
 
 export const TICK_HZ = 60;
@@ -16,11 +17,16 @@ export const DT = 1 / TICK_HZ;
 export const MAX_TICKS = 60 * 60 * 10; // 10 minutes
 
 // Handling. Phase 1 exists to argue with these numbers.
+// Top speed is ACCEL / DRAG, so DRAG is the top-end knob and ACCEL is the
+// off-the-line punch. Lowering DRAG also lengthens the coast when you lift.
 export const ACCEL = 34;
 export const BRAKE = 46;
-export const DRAG = 1.1;
+export const DRAG = 0.8;
 export const GRIP = 6.5;
 export const STEER = 3.1;
+
+/** Collision radius. A circle, not the car's actual box. See resolveHits(). */
+export const CAR_RADIUS = 1.5;
 
 export const Intent = {
   Left: 'left',
@@ -79,7 +85,42 @@ export function step(s: State): void {
   s.vz = nfz * fwd - nfx * lat;
   s.x += s.vx * DT;
   s.z += s.vz * DT;
+  resolveHits(s);
   s.tick++;
+}
+
+/**
+ * Push the car out of any building it ended the tick inside, killing only the
+ * velocity component pointing into the wall so it slides along the face rather
+ * than stopping dead.
+ *
+ * ponytail: circle vs AABB, and a full scan of every building each tick. The
+ * circle means corners round off slightly instead of catching; swap for an OBB
+ * only if scraping past a doorway feels wrong. The scan is O(buildings) per
+ * tick, fine at a few hundred, so add a uniform grid when a district pushes it
+ * into the thousands.
+ *
+ * Tunnelling is not handled: at 0.7 units of travel per tick against buildings
+ * ten units thick it cannot happen. It could if either number changed a lot.
+ */
+function resolveHits(s: State): void {
+  for (const b of CITY) {
+    const dx = s.x - b.x;
+    const overlapX = b.hw + CAR_RADIUS - Math.abs(dx);
+    if (overlapX <= 0) continue;
+    const dz = s.z - b.z;
+    const overlapZ = b.hd + CAR_RADIUS - Math.abs(dz);
+    if (overlapZ <= 0) continue;
+
+    // Eject along the shallower axis: that is the face it actually came through.
+    if (overlapX < overlapZ) {
+      s.x += dx < 0 ? -overlapX : overlapX;
+      s.vx = 0;
+    } else {
+      s.z += dz < 0 ? -overlapZ : overlapZ;
+      s.vz = 0;
+    }
+  }
 }
 
 /**

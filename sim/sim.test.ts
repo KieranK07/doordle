@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { cos, sin, wrapAngle } from './mathd.js';
 import { makeRng, seedFrom } from './rng.js';
-import { BIT, hashState, initialState, replay, step, type InputEvent } from './index.js';
+import { BIT, CAR_RADIUS, hashState, initialState, replay, step, type InputEvent } from './index.js';
+import { CITY } from './city.js';
+import { PI } from './mathd.js';
 import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from './fixture.js';
 
 // Every intent used, edges on odd ticks, overlapping holds.
@@ -74,6 +76,58 @@ describe('determinism', () => {
     for (let i = 0; i < 60; i++) step(t);
     for (let i = 0; i < 60; i++) step(t);
     expect(hashState(t)).toBe(one);
+  });
+});
+
+describe('collision', () => {
+  const inside = (x: number, z: number) =>
+    CITY.some(
+      (b) => Math.abs(x - b.x) < b.hw + CAR_RADIUS - 1e-6 && Math.abs(z - b.z) < b.hd + CAR_RADIUS - 1e-6,
+    );
+
+  it('never leaves the car inside a building', () => {
+    // Aim at a building's face from just outside it and hold the throttle down.
+    const b = CITY[0];
+    for (const [dx, dz, heading] of [
+      [0, -(b.hd + 4), 0],
+      [0, b.hd + 4, PI],
+      [-(b.hw + 4), 0, PI / 2],
+    ]) {
+      const s = initialState();
+      s.x = b.x + dx;
+      s.z = b.z + dz;
+      s.heading = heading;
+      s.held = BIT.accel;
+      for (let i = 0; i < 240; i++) {
+        step(s);
+        expect(inside(s.x, s.z)).toBe(false);
+      }
+    }
+  });
+
+  it('slides along a wall instead of stopping dead', () => {
+    // Into the face at an angle: the wall-normal speed dies, the rest survives.
+    // It survives slowly, because a car still pointed at the wall is skidding
+    // sideways and grip scrubs that off. Travel is the claim here, not speed.
+    const b = CITY[0];
+    const s = initialState();
+    s.x = b.x;
+    s.z = b.z - (b.hd + 4);
+    s.heading = 0.5; // angled into the face, not square on
+    s.held = BIT.accel;
+    const startX = s.x;
+    for (let i = 0; i < 180; i++) step(s);
+    expect(s.x - startX).toBeGreaterThan(5);
+    expect(s.vz).toBe(0);
+  });
+
+  it('leaves a car driving down an open street alone', () => {
+    // Spawn is a street intersection and +Z from there is clear the whole way.
+    const s = initialState();
+    s.held = BIT.accel;
+    for (let i = 0; i < 600; i++) step(s);
+    expect(s.x).toBe(0);
+    expect(s.z).toBeGreaterThan(100);
   });
 });
 
