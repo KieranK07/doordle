@@ -14,8 +14,7 @@
     {
       "binding": "DB",
       "database_name": "doordle",
-      // Filled in by `wrangler d1 create doordle`. Deploys fail until then.
-      "database_id": "REPLACE_ME"
+      "database_id": "cfe9361b-8f84-4ade-8d41-85b8815b5a76"
     }
   ],
   "observability": { "enabled": true }
