@@ -4,19 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { cos, sin, wrapAngle } from './mathd.js';
 import { makeRng, seedFrom } from './rng.js';
 import { hashState, initialState, replay, step, type InputEvent } from './index.js';
+import { CANON_FINISH, CANON_HASH, CANON_TIMELINE } from './fixture.js';
 
-// A run with every intent used, edges landing on odd ticks, overlapping holds.
-const TIMELINE: InputEvent[] = [
-  { tick: 0, action: 'accel', down: true },
-  { tick: 37, action: 'right', down: true },
-  { tick: 91, action: 'right', down: false },
-  { tick: 92, action: 'left', down: true },
-  { tick: 140, action: 'brake', down: true },
-  { tick: 155, action: 'brake', down: false },
-  { tick: 201, action: 'left', down: false },
-  { tick: 333, action: 'accel', down: false },
-];
-const FINISH = 900;
+// Every intent used, edges on odd ticks, overlapping holds.
+const TIMELINE = CANON_TIMELINE;
+const FINISH = CANON_FINISH;
 
 describe('determinism', () => {
   it('is bit-identical across 1000 replays', () => {
@@ -33,6 +25,12 @@ describe('determinism', () => {
     expect(s.tick).toBe(FINISH);
     expect(Math.abs(s.x) + Math.abs(s.z)).toBeGreaterThan(1);
     expect(hashState(s)).not.toBe(hashState(initialState()));
+  });
+
+  it('matches the pinned hash the browser also checks against', () => {
+    // If this changes, physics changed. That is fine, but every stored run and
+    // every leaderboard time computed under the old constants is now invalid.
+    expect(hashState(replay(TIMELINE, FINISH))).toBe(CANON_HASH);
   });
 
   it('diverges on a one-tick input change', () => {

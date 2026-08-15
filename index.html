@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Doordle</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #11141a; overflow: hidden; font: 500 14px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; color: #e7ecf3; }
+      canvas { display: block; }
+      #hud {
+        position: fixed; top: 16px; left: 16px; pointer-events: none;
+        background: rgba(12, 15, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px; padding: 12px 14px; min-width: 190px;
+      }
+      #speed { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+      #speed span { font-size: 13px; font-weight: 500; opacity: 0.55; margin-left: 4px; }
+      #keys { margin-top: 8px; opacity: 0.5; font-size: 12px; }
+      #check { margin-top: 6px; font-size: 12px; opacity: 0.75; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div id="speed">0<span>km/h</span></div>
+      <div id="keys">WASD drive &middot; H determinism check</div>
+      <div id="check"></div>
+    </div>
+    <script type="module" src="/client/main.ts"></script>
+  </body>
+</html>
