@@ -4,6 +4,7 @@
 // The client never reports a score. It reports what keys were pressed and when.
 
 import { houseSlots, type Pin } from '../sim/puzzle.js';
+import { buildBoard } from './board.js';
 import { scoreRun, type Submission } from './score.js';
 
 export type Env = {
@@ -238,12 +239,34 @@ async function handleRun(req: Request, env: Env): Promise<Response> {
   return json({ finishTick: verdict.finishTick });
 }
 
+/**
+ * The board is locked until you have submitted a run for that day (SPEC.md §9),
+ * so that nobody can scout other people's times before playing. Owning a run on
+ * the date IS the key: no run, no board.
+ */
+async function handleBoard(req: Request, env: Env): Promise<Response> {
+  const userId = await currentUser(req, env);
+  if (!userId) return json({ error: 'sign in to see the board' }, 401);
+
+  const date = new URL(req.url).searchParams.get('date') ?? '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'bad date' }, 400);
+
+  const mine = await env.DB.prepare('SELECT finish_tick FROM runs WHERE user_id = ? AND date = ?')
+    .bind(userId, date)
+    .first<{ finish_tick: number }>();
+  if (!mine) return json({ error: 'play today first' }, 403);
+
+  const utcToday = new Date().toISOString().slice(0, 10);
+  return json(await buildBoard(env.DB, userId, date, mine.finish_tick, utcToday));
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
 
     if (pathname === '/api/health') return json({ ok: true, oauth: oauthConfigured(env) });
     if (pathname === '/api/me') return handleMe(req, env);
+    if (pathname === '/api/board') return handleBoard(req, env);
     if (pathname === '/api/run') {
       if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
       return handleRun(req, env);

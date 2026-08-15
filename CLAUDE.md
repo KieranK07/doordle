@@ -2,7 +2,7 @@
 
 Daily browser racing/delivery game. `SPEC.md` is the source of truth for design — read it before changing behaviour, and update it when a design decision changes.
 
-Current phase: **Phase 4 (backend)**. Phases 0 to 3 are done. See SPEC.md §13 for the list. Don't build ahead of the current phase.
+Current phase: **Phase 5 (leaderboards and social)**. Phases 0 to 4 are done and deployed. See SPEC.md §13 for the list. Don't build ahead of the current phase.
 
 Pause is a client concern only. The sim never learns about it: the loop stops
 calling `step()`, so no ticks pass and the recorded timeline cannot tell a
@@ -29,8 +29,15 @@ sim/mathd.ts    engine-exact trig
 sim/rng.ts      seeded RNG, daily seed derivation
 sim/fixture.ts  the canned run and its pinned hash, shared with the browser check
 sim/sim.test.ts every test, including the Math.* allowlist check
-client/main.ts  Three.js renderer, chase cam, input adapter, HUD, minimap
+client/main.ts  Three.js renderer, chase cam, input adapter, HUD, minimap, results
+server/worker.ts routes, sessions, Google OAuth, house claims
+server/score.ts  server-side replay: the only thing that decides a time
+server/board.ts  leaderboards, percentile, streaks, past winners, puzzle numbering
 ```
+
+Players are public as **House #N**, never by email. The house slot is already
+permanent and already on the map, so it is the handle. Do not put an email or a
+Google name on a board.
 
 Everything else gets added as its phase arrives.
 

@@ -29,6 +29,35 @@
       }
       #pause div { font-size: 54px; font-weight: 700; letter-spacing: -0.02em; }
       #pause span { font-size: 13px; opacity: 0.7; }
+      /* Results. Hidden until the run is recorded: the board is locked until
+         you submit (SPEC §9), so there is nothing to show before then. */
+      #board {
+        position: fixed; inset: 0; z-index: 20; display: none;
+        align-items: center; justify-content: center;
+        background: rgba(8, 10, 14, 0.82); padding: 24px;
+      }
+      #board > div {
+        background: #151922; border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px; padding: 20px 22px; width: min(560px, 100%);
+        max-height: 100%; overflow-y: auto;
+      }
+      #board h1 { font-size: 22px; letter-spacing: -0.02em; }
+      #board h2 { font-size: 12px; opacity: 0.55; margin: 18px 0 6px; text-transform: uppercase; letter-spacing: 0.08em; }
+      #board table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+      #board td { padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+      #board td:last-child { text-align: right; }
+      #board tr.me td { color: #6ee7a8; font-weight: 700; }
+      #board .empty { opacity: 0.45; font-size: 12px; }
+      #share {
+        white-space: pre; background: #0d1015; border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px; padding: 10px 12px; margin-top: 6px; font-size: 13px;
+      }
+      #board button {
+        font: inherit; margin-top: 12px; margin-right: 8px; cursor: pointer;
+        background: #2b3a4f; color: #e7ecf3; border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px; padding: 7px 14px;
+      }
+      #board button:hover { background: #35485f; }
       #map {
         position: fixed; right: 16px; bottom: 16px; width: 240px; height: 240px;
         /* Opaque: a translucent panel lets tall pins behind it bleed through
@@ -43,11 +72,12 @@
       <div id="timer">0:00.00</div>
       <div id="state"></div>
       <div id="speed">0<span>km/h</span></div>
-      <div id="keys">WASD drive &middot; H determinism check</div>
+      <div id="keys">WASD drive &middot; B results &middot; H determinism check</div>
       <div id="check"></div>
     </div>
     <canvas id="map" width="480" height="480"></canvas>
     <div id="pause"><div>Paused</div><span>P or Esc to resume</span></div>
+    <div id="board"><div id="board-body"></div></div>
     <script type="module" src="/client/main.ts"></script>
   </body>
 </html>

@@ -37,6 +37,8 @@ let paused = false;
 
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyH') return runCheck();
+  // Closing the results is not the same as never wanting to see them again.
+  if (e.code === 'KeyB' && sim.finishTick >= 0) return showBoard();
   if (e.code === 'KeyP' || e.code === 'Escape') {
     e.preventDefault();
     return setPaused(!paused);
@@ -340,11 +342,91 @@ function submitRun(): void {
     .then(({ status, body }) => {
       checkEl.textContent = status === 200 ? 'run recorded' : `not recorded: ${body.error ?? status}`;
       checkEl.style.color = status === 200 ? '#6ee7a8' : '#e0a458';
+      // 409 means today's run is already stored, from this browser or another
+      // one. The board is unlocked either way, so it still opens.
+      if (status === 200 || status === 409) showBoard();
     })
     .catch(() => {
       checkEl.textContent = 'not recorded: no server';
       checkEl.style.color = '#e0a458';
     });
+}
+
+// ------------------------------------------------------------- the results
+
+type Board = {
+  number: number;
+  you: { slot: number; rank: number; total: number; percentile: number; finishTick: number; streak: number };
+  daily: { rank: number; slot: number; finishTick: number }[];
+  monthly: { rank: number; slot: number; avgTick: number; days: number }[];
+  winners: { date: string; number: number; slot: number; finishTick: number }[];
+};
+
+const boardEl = document.getElementById('board') as HTMLElement;
+const boardBody = document.getElementById('board-body') as HTMLElement;
+let shareText = '';
+
+const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+
+function rows<T extends { rank: number; slot: number }>(
+  list: T[],
+  mine: number,
+  right: (r: T) => string,
+): string {
+  if (!list.length) return '<div class="empty">nobody yet</div>';
+  return `<table>${list
+    .map(
+      (r) =>
+        `<tr class="${r.slot === mine ? 'me' : ''}"><td>${r.rank}</td>` +
+        `<td>House #${r.slot}</td><td>${esc(right(r))}</td></tr>`,
+    )
+    .join('')}</table>`;
+}
+
+function render(b: Board): void {
+  const delta = (b.you.finishTick - PAR.ticks) / TICK_HZ;
+  const off = delta <= 0 ? `${(-delta).toFixed(0)}s under par` : `${delta.toFixed(0)}s off par`;
+
+  // Spoiler-free by construction (SPEC.md §11): a time, a par gap, a
+  // percentile. Nothing here hints at the route.
+  shareText =
+    `Doordle #${b.number}\n${clock(b.you.finishTick)} - ${off}\nTop ${b.you.percentile}%` +
+    (b.you.streak > 1 ? `\n${b.you.streak} day streak` : '');
+
+  boardBody.innerHTML =
+    `<h1>Doordle #${b.number}</h1>` +
+    `<div>${clock(b.you.finishTick)} &middot; ${esc(off)} &middot; ` +
+    `rank ${b.you.rank} of ${b.you.total} (top ${b.you.percentile}%) &middot; ` +
+    `${b.you.streak} day streak</div>` +
+    `<div id="share">${esc(shareText)}</div>` +
+    `<button id="copy">Copy result</button><button id="close">Close</button>` +
+    `<h2>Today</h2>${rows(b.daily, b.you.slot, (r) => clock(r.finishTick))}` +
+    `<h2>Last 30 days (average)</h2>` +
+    rows(b.monthly, b.you.slot, (r) => `${clock(r.avgTick)} · ${r.days}d`) +
+    `<h2>Past winners</h2>` +
+    (b.winners.length
+      ? `<table>${b.winners
+          .map(
+            (w) =>
+              `<tr class="${w.slot === b.you.slot ? 'me' : ''}"><td>#${w.number}</td>` +
+              `<td>House #${w.slot}</td><td>${clock(w.finishTick)}</td></tr>`,
+          )
+          .join('')}</table>`
+      : '<div class="empty">no day has closed yet</div>');
+
+  boardEl.style.display = 'flex';
+  document.getElementById('close')!.onclick = () => (boardEl.style.display = 'none');
+  document.getElementById('copy')!.onclick = (e) => {
+    navigator.clipboard.writeText(shareText);
+    (e.currentTarget as HTMLElement).textContent = 'Copied';
+  };
+}
+
+function showBoard(): void {
+  fetch(`/api/board?date=${DATE}`)
+    .then(async (res) => (res.ok ? ((await res.json()) as Board) : null))
+    .then((b) => b && render(b))
+    .catch(() => undefined);
 }
 
 function clock(ticks: number): string {
