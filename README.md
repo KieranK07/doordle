@@ -5,6 +5,8 @@ A daily browser game. One run per day, everyone races the same delivery route, f
 Live at [doordle.chadnerd.lol](https://doordle.chadnerd.lol). Design and build
 order: [SPEC.md](SPEC.md).
 
+![Doordle start screen over the 3D city](docs/img/gameplay.png)
+
 ```
 npm run dev      vite on :5173
 npm test         typecheck + vitest
